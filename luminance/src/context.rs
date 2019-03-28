@@ -39,6 +39,10 @@ use crate::state::GraphicsState;
 /// Such a context must not be Send nor Sync, which means that you cannot share it between
 /// threads in any way (move / borrow).
 pub unsafe trait GraphicsContext {
+  // TODO
+  /// Graphics driver.
+  //type Driver;
+
   /// Get access to the graphics state of this context.
   ///
   /// This must return a `Rc<RefCell<GraphicsState>>` because the state will be shared by OpenGL

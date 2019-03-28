@@ -108,6 +108,7 @@ pub mod blending;
 pub mod buffer;
 pub mod context;
 pub mod depth_test;
+pub mod driver;
 pub mod face_culling;
 pub mod framebuffer;
 pub mod linear;
