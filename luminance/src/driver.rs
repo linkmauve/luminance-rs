@@ -11,6 +11,9 @@ use crate::depth_test;
 use crate::face_culling;
 use crate::vertex_restart;
 
+/// Main driver, providing all graphics-related features.
+pub unsafe trait Driver: BufferDriver + RenderStateDriver {}
+
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
   /// Representation of graphics buffers by this driver.
