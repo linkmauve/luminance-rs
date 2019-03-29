@@ -63,3 +63,22 @@ pub unsafe trait RenderStateDriver {
   /// Set the face culling mode.
   unsafe fn set_face_culling_mode(&mut self, mode: face_culling::FaceCullingMode);
 }
+
+/// Framebuffer implementation.
+pub unsafe trait FramebufferDriver {
+  /// Representation of a graphics framebuffer by this driver.
+  type Framebuffer;
+
+  /// Representation of a graphics renderbuffer by this driver.
+  type RenderBuffer;
+
+  /// Error that might occur with framebuffers.
+  type Err;
+
+  /// Get the back buffer, if any available.
+  unsafe fn back_buffer(&mut self) -> Result<Self::Framebuffer, Self::Err>;
+  /// Create a framebuffer.
+  unsafe fn new_framebuffer(&mut self) -> Result<Self::Framebuffer, Self::Err>;
+  /// Drop a framebuffer.
+  unsafe fn drop_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
+}
