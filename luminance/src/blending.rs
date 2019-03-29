@@ -10,7 +10,7 @@
 //! The factors are encoded with `Factor`.
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) enum BlendingState {
+pub enum BlendingState {
   On,
   Off,
 }

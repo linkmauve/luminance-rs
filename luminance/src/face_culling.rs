@@ -4,8 +4,8 @@
 /// Face culling setup.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FaceCulling {
-  pub(crate) order: FaceCullingOrder,
-  pub(crate) mode: FaceCullingMode,
+  pub order: FaceCullingOrder,
+  pub mode: FaceCullingMode,
 }
 
 impl FaceCulling {
@@ -21,7 +21,7 @@ impl Default for FaceCulling {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) enum FaceCullingState {
+pub enum FaceCullingState {
   On,
   Off,
 }
