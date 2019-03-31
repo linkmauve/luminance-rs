@@ -135,24 +135,22 @@ unsafe impl TextureDriver for GL33 {
     let pf = P::pixel_format();
     let (format, _, ty) = opengl_pixel_format(pf).unwrap();
 
-    unsafe {
-      let mut w = 0;
-      let mut h = 0;
+    let mut w = 0;
+    let mut h = 0;
 
-      let mut gfx_state = self.state.borrow_mut();
-      gfx_state.bind_texture(texture.target, texture.handle);
+    let mut gfx_state = self.state.borrow_mut();
+    gfx_state.bind_texture(texture.target, texture.handle);
 
-      // retrieve the size of the texture (w and h)
-      gl::GetTexLevelParameteriv(texture.target, 0, gl::TEXTURE_WIDTH, &mut w);
-      gl::GetTexLevelParameteriv(texture.target, 0, gl::TEXTURE_HEIGHT, &mut h);
+    // retrieve the size of the texture (w and h)
+    gl::GetTexLevelParameteriv(texture.target, 0, gl::TEXTURE_WIDTH, &mut w);
+    gl::GetTexLevelParameteriv(texture.target, 0, gl::TEXTURE_HEIGHT, &mut h);
 
-      // resize the vec to allocate enough space to host the returned texels
-      texels.resize((w * h) as usize * pixel_components(pf), uninitialized());
+    // resize the vec to allocate enough space to host the returned texels
+    texels.resize((w * h) as usize * pixel_components(pf), uninitialized());
 
-      gl::GetTexImage(texture.target, 0, format, ty, texels.as_mut_ptr() as *mut c_void);
+    gl::GetTexImage(texture.target, 0, format, ty, texels.as_mut_ptr() as *mut c_void);
 
-      gfx_state.bind_texture(texture.target, 0);
-    }
+    gfx_state.bind_texture(texture.target, 0);
 
     Ok(texels)
   }
@@ -331,20 +329,10 @@ where
     }
 
     None => {
-      #[cfg(feature = "std")]
-      {
-        Err(TextureError::TextureStorageCreationFailed(format!(
+      Err(TextureError::TextureStorageCreationFailed(format!(
           "unsupported texture pixel format: {:?}",
           pf
-        )))
-      }
-
-      #[cfg(not(feature = "std"))]
-      {
-        let mut reason = String::new();
-        let _ = write!(&mut reason, "unsupported texture pixel format: {:?}", pf);
-        Err(TextureError::TextureStorageCreationFailed(reason))
-      }
+      )))
     }
   }
 }
