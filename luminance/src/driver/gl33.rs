@@ -1,6 +1,7 @@
 mod buffer;
 mod render_state;
 mod state;
+mod texture;
 
 use crate::driver::gl33::state::GraphicsState;
 use std::cell::RefCell;

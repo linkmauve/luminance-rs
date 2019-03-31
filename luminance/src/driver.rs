@@ -107,19 +107,6 @@ pub unsafe trait TextureDriver {
   /// Drop a texture.
   unsafe fn drop_texture(&mut self, texture: &mut Self::Texture);
 
-  /// Clear a part of a texture.
-  unsafe fn clear_part<L, D, P>(
-    &mut self,
-    texture: &Self::Texture,
-    gen_mipmaps: bool,
-    offset: D::Offset,
-    size: D::Size,
-    pixel: P::Encoding
-  ) -> Result<(), Self::Err>
-  where L: texture::Layerable,
-        D: texture::Dimensionable,
-        P: pixel::Pixel;
-
   /// Upload texels to a part of a texture.
   unsafe fn upload_part<L, D, P>(
     &mut self,
@@ -150,7 +137,7 @@ pub unsafe trait TextureDriver {
   unsafe fn get_raw_texels<P>(
     &mut self,
     texture: &Self::Texture
-    ) -> Result<Vec<P::RawEncoding>, Self::Err>
-    where P: pixel::Pixel,
-          P::RawEncoding: Copy;
+  ) -> Result<Vec<P::RawEncoding>, Self::Err>
+  where P: pixel::Pixel,
+        P::RawEncoding: Copy;
 }
