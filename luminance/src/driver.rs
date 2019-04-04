@@ -9,6 +9,7 @@ pub mod gl33;
 use crate::blending;
 use crate::depth_test;
 use crate::face_culling;
+use crate::framebuffer;
 use crate::pixel;
 use crate::texture;
 use crate::vertex_restart;
@@ -78,11 +79,44 @@ pub unsafe trait FramebufferDriver {
   type Err;
 
   /// Get the back buffer, if any available.
-  unsafe fn back_buffer(&mut self) -> Result<Self::Framebuffer, Self::Err>;
+  unsafe fn back_buffer(&mut self, size: [u32; 2]) -> Result<Self::Framebuffer, Self::Err>;
+
   /// Create a framebuffer.
-  unsafe fn new_framebuffer(&mut self) -> Result<Self::Framebuffer, Self::Err>;
+  unsafe fn new_framebuffer<L, D, CS, DS>(
+    &mut self,
+    size: [u32; 2],
+    mipmaps: usize
+  ) -> Result<Self::Framebuffer, Self::Err>
+  where CS: framebuffer::ColorSlot<L, D>,
+        DS: framebuffer::DepthSlot<L, D>,
+        L: texture::Layerable,
+        D: texture::Dimensionable,
+        D::Size: Copy;
+
   /// Drop a framebuffer.
   unsafe fn drop_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
+
+  /// Use a framebuffer.
+  unsafe fn use_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
+
+  /// Set the viewport for incoming calls in this framebuffer.
+  unsafe fn set_framebuffer_viewport(
+    &mut self,
+    framebuffer: &mut Self::Framebuffer,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32
+  );
+
+  /// Clear color to use with this framebuffer when clearing.
+  unsafe fn set_framebuffer_clear_color(
+    &mut self,
+    framebuffer: &mut Self::Framebuffer,
+    rgba: [f32; 4]
+  );
+
+  unsafe fn clear_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
 }
 
 /// Texture implementation.
