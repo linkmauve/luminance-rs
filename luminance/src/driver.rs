@@ -72,9 +72,6 @@ pub unsafe trait FramebufferDriver {
   /// Representation of a graphics framebuffer by this driver.
   type Framebuffer;
 
-  /// Representation of a graphics renderbuffer by this driver.
-  type RenderBuffer;
-
   /// Error that might occur with framebuffers.
   type Err;
 
