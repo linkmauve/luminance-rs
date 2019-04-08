@@ -1,4 +1,5 @@
 mod buffer;
+mod framebuffer;
 mod render_state;
 mod state;
 mod texture;
