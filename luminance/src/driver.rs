@@ -15,7 +15,9 @@ use crate::texture;
 use crate::vertex_restart;
 
 /// Main driver, providing all graphics-related features.
-pub unsafe trait Driver: BufferDriver + RenderStateDriver {}
+pub trait Driver: BufferDriver + RenderStateDriver + FramebufferDriver + TextureDriver {}
+
+impl<T> Driver for T where T: BufferDriver + RenderStateDriver + FramebufferDriver + TextureDriver {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
