@@ -31,6 +31,7 @@ use alloc::rc::Rc;
 #[cfg(not(feature = "std"))]
 use core::cell::RefCell;
 
+use crate::driver::Driver;
 use crate::pipeline::Builder;
 use crate::state::GraphicsState;
 
@@ -39,9 +40,11 @@ use crate::state::GraphicsState;
 /// Such a context must not be Send nor Sync, which means that you cannot share it between
 /// threads in any way (move / borrow).
 pub unsafe trait GraphicsContext {
-  // TODO
   /// Graphics driver.
-  //type Driver;
+  type Driver: Driver;
+
+  /// Get access to the graphics driver.
+  fn driver(&mut self) -> &mut Self::Driver;
 
   /// Get access to the graphics state of this context.
   ///
