@@ -74,6 +74,7 @@ use std::rc::Rc;
 use std::slice;
 
 use crate::context::GraphicsContext;
+use crate::driver::BufferDriver;
 use crate::linear::{M22, M33, M44};
 use crate::metagl::*;
 use crate::state::GraphicsState;
@@ -81,6 +82,8 @@ use crate::state::GraphicsState;
 /// Buffer errors.
 #[derive(Debug, Eq, PartialEq)]
 pub enum BufferError {
+  /// Error occurring in a driver.
+  DriverError(Box<dyn fmt::Display>),
   /// Overflow when setting a value with a specific index.
   ///
   /// Contains the index and the size of the buffer.
@@ -100,6 +103,8 @@ pub enum BufferError {
 impl fmt::Display for BufferError {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     match *self {
+      BufferError::DriverError(ref e) => write!(f, "buffer driver error: {}", e),
+
       BufferError::Overflow(i, size) => write!(f, "buffer overflow (index = {}, size = {})", i, size),
 
       BufferError::TooFewValues(nb, size) => write!(
@@ -123,58 +128,28 @@ impl fmt::Display for BufferError {
 
 /// A `Buffer` is a GPU region you can picture as an array. It has a static size and cannot be
 /// resized. The size is expressed in number of elements lying in the buffer – not in bytes.
-pub struct Buffer<T> {
-  raw: RawBuffer,
+pub struct Buffer<T, D> where D: BufferDriver {
+  buf: D::Buffer,
   _t: PhantomData<T>,
 }
 
-impl<T> Buffer<T> {
+impl<T, D> Buffer<T, D> where D: BufferDriver {
   /// Create a new `Buffer` with a given number of elements.
-  pub fn new<C>(ctx: &mut C, len: usize) -> Buffer<T> where C: GraphicsContext {
-    let mut buffer: GLuint = 0;
-    let bytes = mem::size_of::<T>() * len;
-
-    unsafe {
-      gl::GenBuffers(1, &mut buffer);
-      ctx.state().borrow_mut().bind_array_buffer(buffer);
-      gl::BufferData(gl::ARRAY_BUFFER, bytes as isize, ptr::null(), gl::STREAM_DRAW);
-    }
+  pub fn new<C>(ctx: &mut C, len: usize) -> Buffer<T> where C: GraphicsContext<Driver = D> {
+    let buf = ctx.driver().new_buffer::<T>(len).map_err(BufferError::DriverError)?;
 
     Buffer {
-      raw: RawBuffer {
-        handle: buffer,
-        bytes,
-        len,
-        state: ctx.state().clone(),
-      },
+      buf,
       _t: PhantomData,
     }
   }
 
   /// Create a buffer out of a slice.
-  pub fn from_slice<C>(ctx: &mut C, slice: &[T]) -> Buffer<T> where C: GraphicsContext {
-    let mut buffer: GLuint = 0;
-    let len = slice.len();
-    let bytes = mem::size_of::<T>() * len;
-
-    unsafe {
-      gl::GenBuffers(1, &mut buffer);
-      ctx.state().borrow_mut().bind_array_buffer(buffer);
-      gl::BufferData(
-        gl::ARRAY_BUFFER,
-        bytes as isize,
-        slice.as_ptr() as *const c_void,
-        gl::STREAM_DRAW,
-      );
-    }
+  pub fn from_slice<C>(ctx: &mut C, slice: &[T]) -> Buffer<T> where C: GraphicsContext<Driver = D> {
+    let buf = ctx.driver().from_slice::<T>(slice).map_err(BufferError::DriverError)?;
 
     Buffer {
-      raw: RawBuffer {
-        handle: buffer,
-        bytes,
-        len,
-        state: ctx.state().clone(),
-      },
+      buf,
       _t: PhantomData,
     }
   }
@@ -187,30 +162,12 @@ impl<T> Buffer<T> {
       return None;
     }
 
-    unsafe {
-      self.raw.state.borrow_mut().bind_array_buffer(self.handle);
-      let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *const T;
-
-      let x = *ptr.offset(i as isize);
-
-      let _ = gl::UnmapBuffer(gl::ARRAY_BUFFER);
-
-      Some(x)
-    }
+    unsafe { D::at(&self.buf, i) }
   }
 
   /// Retrieve the whole content of the `Buffer`.
   pub fn whole(&self) -> Vec<T> where T: Copy {
-    unsafe {
-      self.raw.state.borrow_mut().bind_array_buffer(self.handle);
-      let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *mut T;
-
-      let values = Vec::from_raw_parts(ptr, self.len, self.len);
-
-      let _ = gl::UnmapBuffer(gl::ARRAY_BUFFER);
-
-      values
-    }
+    unsafe { D::whole(&self.buf) }
   }
 
   /// Set a value at a given index in the `Buffer`.
@@ -221,16 +178,7 @@ impl<T> Buffer<T> {
       return Err(BufferError::Overflow(i, self.len));
     }
 
-    unsafe {
-      self.raw.state.borrow_mut().bind_array_buffer(self.handle);
-      let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::WRITE_ONLY) as *mut T;
-
-      *ptr.offset(i as isize) = x;
-
-      let _ = gl::UnmapBuffer(gl::ARRAY_BUFFER);
-    }
-
-    Ok(())
+    unsafe { D::set(&mut self.buf, i, x).map_err(BufferError::DriverError) }
   }
 
   /// Write a whole slice into a buffer.
@@ -239,7 +187,7 @@ impl<T> Buffer<T> {
   /// `BufferError::TooFewValues` error. If it has more, you’ll get `BufferError::TooManyValues`.
   ///
   /// This function won’t write anything on any error.
-  pub fn write_whole(&self, values: &[T]) -> Result<(), BufferError> {
+  pub fn write_whole(&mut self, values: &[T]) -> Result<(), BufferError> {
     let len = values.len();
     let in_bytes = len * mem::size_of::<T>();
 
@@ -250,16 +198,7 @@ impl<T> Buffer<T> {
       _ => in_bytes,
     };
 
-    unsafe {
-      self.raw.state.borrow_mut().bind_array_buffer(self.handle);
-      let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::WRITE_ONLY);
-
-      ptr::copy_nonoverlapping(values.as_ptr() as *const c_void, ptr, real_bytes);
-
-      let _ = gl::UnmapBuffer(gl::ARRAY_BUFFER);
-    }
-
-    Ok(())
+    unsafe { D::write_whole(&mut self.buf, values, real_bytes).map_err(BufferError::DriverError) }
   }
 
   /// Fill the `Buffer` with a single value.
@@ -272,25 +211,21 @@ impl<T> Buffer<T> {
     self.write_whole(values)
   }
 
-  /// Convert a buffer to its raw representation.
+  /// Convert a buffer to its driver representation.
   ///
   /// Becareful: once you have called this function, it is not possible to go back to a `Buffer<_>`.
-  pub fn to_raw(self) -> RawBuffer {
-    let raw = RawBuffer {
-      handle: self.raw.handle,
-      bytes: self.raw.bytes,
-      len: self.raw.len,
-      state: self.raw.state.clone(),
-    };
+  pub fn to_driver_buf(self) -> D::Buffer {
+    let buf = self.buf;
 
     // forget self so that we don’t call drop on it after the function has returned
     mem::forget(self);
-    raw
+
+    buf
   }
 
   /// Obtain an immutable slice view into the buffer.
   pub fn as_slice(&self) -> Result<BufferSlice<T>, BufferError> {
-    self.raw.as_slice()
+    let p = unsafe { D::as_slice::<T>(&self.buf).map_err(BufferError::DriverError)? };
   }
 
   /// Obtain a mutable slice view into the buffer.
@@ -378,7 +313,7 @@ impl<T> From<Buffer<T>> for RawBuffer {
 }
 
 /// A buffer slice mapped into GPU memory.
-pub struct BufferSlice<'a, T> where T: 'a {
+pub struct BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   // Borrowed raw buffer.
   raw: &'a RawBuffer,
   // Raw pointer into the GPU memory.
