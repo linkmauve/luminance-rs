@@ -105,13 +105,15 @@ impl fmt::Display for BufferError {
       BufferError::TooFewValues(nb, size) => write!(
         f,
         "too few values passed to the buffer (nb = {}, size = {})",
-        nb, size
+        nb,
+        size
       ),
 
       BufferError::TooManyValues(nb, size) => write!(
         f,
         "too many values passed to the buffer (nb = {}, size = {})",
-        nb, size
+        nb,
+        size
       ),
 
       BufferError::MapFailed => write!(f, "buffer mapping failed"),
