@@ -211,7 +211,7 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   /// Convert a buffer to its driver representation.
   ///
   /// Becareful: once you have called this function, it is not possible to go back to a `Buffer<_>`.
-  pub fn to_driver_buf(self) -> D::Buffer {
+  pub(crate) fn to_driver_buf(self) -> D::Buffer {
     let buf = self.buf;
 
     // forget self so that we don’t call drop on it after the function has returned

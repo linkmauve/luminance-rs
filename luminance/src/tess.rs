@@ -54,25 +54,13 @@
 //! [`Tess::new_deinterleaved`]: struct.Tess.html#method.new_deinterleaved
 //! [`TessSlice`]: struct.TessSlice.html
 
-#[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
-#[cfg(feature = "std")]
 use std::os::raw::c_void;
-#[cfg(feature = "std")]
 use std::ptr;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use core::fmt;
-#[cfg(not(feature = "std"))]
-use core::ops::{Range, RangeFrom, RangeFull, RangeTo};
-#[cfg(not(feature = "std"))]
-use core::ptr;
-
-use crate::buffer::{Buffer, BufferError, BufferSlice, BufferSliceMut, RawBuffer};
+use crate::buffer::{Buffer, BufferError, BufferSlice, BufferSliceMut};
+use crate::driver::BufferDriver;
 use crate::context::GraphicsContext;
 use crate::metagl::*;
 use crate::vertex::{
@@ -117,9 +105,12 @@ impl fmt::Display for TessMapError {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     match *self {
       TessMapError::VertexBufferMapFailed(ref e) => write!(f, "cannot map tessellation buffer: {}", e),
+
       TessMapError::TypeMismatch(ref a, ref b) =>
        write!(f, "cannot map tessellation: type mismatch between {:?} and {:?}", a, b),
+
       TessMapError::ForbiddenAttributelessMapping => f.write_str("cannot map an attributeless buffer"),
+
       TessMapError::ForbiddenDeinterleavedMapping => {
         f.write_str("cannot map a deinterleaved buffer as interleaved")
       }
@@ -127,26 +118,26 @@ impl fmt::Display for TessMapError {
   }
 }
 
-struct VertexBuffer {
+struct VertexBuffer<D> where D: BufferDriver {
   /// Indexed format of the buffer.
   fmt: VertexDesc,
   /// Internal buffer.
-  buf: RawBuffer,
+  buf: D::Buffer,
 }
 
 /// Build tessellations the easy way.
-pub struct TessBuilder<'a, C> {
+pub struct TessBuilder<'a, C, D> where D: BufferDriver {
   ctx: &'a mut C,
-  vertex_buffers: Vec<VertexBuffer>,
-  index_buffer: Option<(RawBuffer, TessIndexType)>,
+  vertex_buffers: Vec<VertexBuffer<D>>,
+  index_buffer: Option<(D::Buffer, TessIndexType)>,
   restart_index: Option<u32>,
   mode: Mode,
   vert_nb: usize,
-  instance_buffers: Vec<VertexBuffer>,
+  instance_buffers: Vec<VertexBuffer<D>>,
   inst_nb: usize,
 }
 
-impl<'a, C> TessBuilder<'a, C> {
+impl<'a, C, D> TessBuilder<'a, C, D> where D: BufferDriver {
   pub fn new(ctx: &'a mut C) -> Self {
     TessBuilder {
       ctx,
@@ -161,10 +152,7 @@ impl<'a, C> TessBuilder<'a, C> {
   }
 }
 
-impl<'a, C> TessBuilder<'a, C>
-where
-  C: GraphicsContext,
-{
+impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: BufferDriver {
   /// Add vertices to be part of the tessellation.
   ///
   /// This method can be used in several ways. First, you can decide to use interleaved memory, in
@@ -172,16 +160,12 @@ where
   /// buffer. Second, you can opt-in to use deinterleaved memory, in which case you will have
   /// several, smaller buffers of borrowed data and you will issue a call to this method for all of
   /// them.
-  pub fn add_vertices<V, W>(mut self, vertices: W) -> Self
-  where
-    W: AsRef<[V]>,
-    V: Vertex
-  {
+  pub fn add_vertices<V, W>(mut self, vertices: W) -> Result<Self, TessError<D>> where W: AsRef<[V]>, V: Vertex {
     let vertices = vertices.as_ref();
 
     let vb = VertexBuffer {
       fmt: V::vertex_desc(),
-      buf: Buffer::from_slice(self.ctx, vertices).to_raw(),
+      buf: Buffer::from_slice(self.ctx, vertices).map_err(TessError::UnderlyingBufferError)?.to_driver_buf(),
     };
 
     self.vertex_buffers.push(vb);
@@ -189,14 +173,12 @@ where
     self
   }
 
-  pub fn add_instances<V, W>(mut self, instances: W) -> Self
-  where W: AsRef<[V]>,
-        V: Vertex {
+  pub fn add_instances<V, W>(mut self, instances: W) -> Result<Self, TessError<D>> where W: AsRef<[V]>, V: Vertex {
     let instances = instances.as_ref();
 
     let vb = VertexBuffer {
       fmt: V::vertex_desc(),
-      buf: Buffer::from_slice(self.ctx, instances).to_raw(),
+      buf: Buffer::from_slice(self.ctx, instances).map_err(TessError::UnderlyingBufferError)?.to_driver_buf(),
     };
 
     self.instance_buffers.push(vb);
@@ -205,15 +187,11 @@ where
   }
 
   /// Set vertex indices in order to specify how vertices should be picked by the GPU pipeline.
-  pub fn set_indices<T, I>(mut self, indices: T) -> Self
-  where
-    T: AsRef<[I]>,
-    I: TessIndex  {
+  pub fn set_indices<T, I>(mut self, indices: T) -> Result<Self, TessError<D>> where T: AsRef<[I]>, I: TessIndex  {
     let indices = indices.as_ref();
 
     // create a new raw buffer containing the indices and turn it into a vertex buffer
-    let buf = Buffer::from_slice(self.ctx, indices).to_raw();
-
+    let buf = Buffer::from_slice(self.ctx, indices).map_err(TessError::UnderlyingBufferError)?.to_dirver_buf();
     self.index_buffer = Some((buf, I::INDEX_TYPE));
 
     self
@@ -240,7 +218,7 @@ where
     self
   }
 
-  pub fn build(self) -> Result<Tess, TessError> {
+  pub fn build(self) -> Result<Tess, TessError<D>> {
     // try to deduce the number of vertices to render if it’s not specified
     let vert_nb = self.guess_vert_nb_or_fail()?;
     let inst_nb = self.guess_inst_nb_or_fail()?;
@@ -248,7 +226,7 @@ where
   }
 
   /// Build a tessellation based on a given number of vertices to render by default.
-  fn build_tess(self, vert_nb: usize, inst_nb: usize) -> Result<Tess, TessError> {
+  fn build_tess(self, vert_nb: usize, inst_nb: usize) -> Result<Tess, TessError<D>> {
     let mut vao: GLuint = 0;
 
     unsafe {
@@ -400,11 +378,11 @@ where
   }
 }
 
-#[derive(Debug)]
-pub enum TessError {
+pub enum TessError<D> where D: BufferDriver {
   AttributelessError(String),
   LengthIncoherency(usize),
-  Overflow(usize, usize)
+  Overflow(usize, usize),
+  UnderlyingBufferError(BufferError<D>)
 }
 
 /// Possible tessellation index types.
