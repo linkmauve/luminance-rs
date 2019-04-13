@@ -41,7 +41,7 @@ use crate::state::GraphicsState;
 /// threads in any way (move / borrow).
 pub unsafe trait GraphicsContext {
   /// Graphics driver.
-  type Driver: Driver;
+  type Driver;
 
   /// Get access to the graphics driver.
   fn driver(&mut self) -> &mut Self::Driver;

@@ -6,6 +6,8 @@
 
 pub mod gl33;
 
+use std::fmt::Display;
+
 use crate::blending;
 use crate::depth_test;
 use crate::face_culling;
@@ -25,28 +27,44 @@ pub unsafe trait BufferDriver {
   type Buffer;
 
   /// Error that might occur with buffers.
-  type Err;
+  type Err: Display;
 
   /// Create a new buffer with uninitialized memory.
   unsafe fn new_buffer<T>(&mut self, len: usize) -> Result<Self::Buffer, Self::Err>;
+
   /// Create a new buffer from a slice.
   unsafe fn from_slice<T>(&mut self, slice: &[T]) -> Result<Self::Buffer, Self::Err>;
+
+  /// Get the length of the buffer.
+  unsafe fn len(buffer: &Self::Buffer) -> usize;
+
+  /// Get the number of bytes the buffer can accept.
+  unsafe fn bytes(buffer: &Self::Buffer) -> usize;
+
   /// Drop a buffer.
   unsafe fn drop(buffer: &mut Self::Buffer);
+
   /// Retrieve an element via indexing.
   unsafe fn at<T>(buffer: &Self::Buffer, i: usize) -> Option<T> where T: Copy;
+
   /// Retrieve the whole content.
   unsafe fn whole<T>(buffer: &Self::Buffer) -> Vec<T>;
+
   /// Set a value at a given index.
   unsafe fn set<T>(buffer: &mut Self::Buffer, i: usize, x: T) -> Result<(), Self::Err>;
+
   /// Write a whole slice into a buffer.
   unsafe fn write_whole<T>(buffer: &mut Self::Buffer, values: &[T], bytes: usize) -> Result<(), Self::Err>;
+
   /// Obtain an immutable slice view into the buffer.
   unsafe fn as_slice<T>(buffer: &Self::Buffer) -> Result<*const T, Self::Err>;
+
   /// Obtain an immutable slice view into the buffer.
   unsafe fn as_slice_mut<T>(buffer: &mut Self::Buffer) -> Result<*mut T, Self::Err>;
+
   // Drop a slice.
   unsafe fn drop_slice<T>(buffer: &mut Self::Buffer, slice: *const T);
+
   // Drop a mutable slice.
   unsafe fn drop_slice_mut<T>(buffer: &mut Self::Buffer, slice: *mut T);
 }

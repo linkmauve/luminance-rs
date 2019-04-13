@@ -81,9 +81,9 @@ use crate::state::GraphicsState;
 
 /// Buffer errors.
 #[derive(Debug, Eq, PartialEq)]
-pub enum BufferError {
+pub enum BufferError<D> where D: BufferDriver {
   /// Error occurring in a driver.
-  DriverError(Box<dyn fmt::Display>),
+  DriverError(D::Err),
   /// Overflow when setting a value with a specific index.
   ///
   /// Contains the index and the size of the buffer.
@@ -100,7 +100,7 @@ pub enum BufferError {
   MapFailed,
 }
 
-impl fmt::Display for BufferError {
+impl<D> fmt::Display for BufferError<D> where D: BufferDriver{
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     match *self {
       BufferError::DriverError(ref e) => write!(f, "buffer driver error: {}", e),
@@ -135,30 +135,26 @@ pub struct Buffer<T, D> where D: BufferDriver {
 
 impl<T, D> Buffer<T, D> where D: BufferDriver {
   /// Create a new `Buffer` with a given number of elements.
-  pub fn new<C>(ctx: &mut C, len: usize) -> Buffer<T> where C: GraphicsContext<Driver = D> {
-    let buf = ctx.driver().new_buffer::<T>(len).map_err(BufferError::DriverError)?;
-
-    Buffer {
-      buf,
-      _t: PhantomData,
-    }
+  pub fn new<C>(ctx: &mut C, len: usize) -> Result<Self, BufferError<D>> where C: GraphicsContext<Driver = D> {
+    ctx.driver()
+      .new_buffer::<T>(len)
+      .map(|buf| Buffer { buf, _t: PhantomData })
+      .map_err(BufferError::DriverError)
   }
 
   /// Create a buffer out of a slice.
-  pub fn from_slice<C>(ctx: &mut C, slice: &[T]) -> Buffer<T> where C: GraphicsContext<Driver = D> {
-    let buf = ctx.driver().from_slice::<T>(slice).map_err(BufferError::DriverError)?;
-
-    Buffer {
-      buf,
-      _t: PhantomData,
-    }
+  pub fn from_slice<C>(ctx: &mut C, slice: &[T]) -> Result<Self, BufferError<D>> where C: GraphicsContext<Driver = D> {
+    ctx.driver()
+      .from_slice::<T>(slice)
+      .map(|buf| Buffer { buf, _t: PhantomData })
+      .map_err(BufferError::DriverError)
   }
 
   /// Retrieve an element from the `Buffer`.
   ///
   /// Checks boundaries.
   pub fn at(&self, i: usize) -> Option<T> where T: Copy {
-    if i >= self.len {
+    if i >= D::len(&self.buf) {
       return None;
     }
 
@@ -173,9 +169,9 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   /// Set a value at a given index in the `Buffer`.
   ///
   /// Checks boundaries.
-  pub fn set(&mut self, i: usize, x: T) -> Result<(), BufferError> where T: Copy {
-    if i >= self.len {
-      return Err(BufferError::Overflow(i, self.len));
+  pub fn set(&mut self, i: usize, x: T) -> Result<(), BufferError<D>> where T: Copy {
+    if i >= D::len(&self.buf) {
+      return Err(BufferError::Overflow(i, D::len(&self.buf)));
     }
 
     unsafe { D::set(&mut self.buf, i, x).map_err(BufferError::DriverError) }
@@ -187,14 +183,15 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   /// `BufferError::TooFewValues` error. If it has more, you’ll get `BufferError::TooManyValues`.
   ///
   /// This function won’t write anything on any error.
-  pub fn write_whole(&mut self, values: &[T]) -> Result<(), BufferError> {
+  pub fn write_whole(&mut self, values: &[T]) -> Result<(), BufferError<D>> {
+    let buf_len = D::len(&self.buf);
     let len = values.len();
     let in_bytes = len * mem::size_of::<T>();
 
     // generate warning and recompute the proper number of bytes to copy
-    let real_bytes = match in_bytes.cmp(&self.bytes) {
-      Ordering::Less => return Err(BufferError::TooFewValues(len, self.len)),
-      Ordering::Greater => return Err(BufferError::TooManyValues(len, self.len)),
+    let real_bytes = match in_bytes.cmp(&D::bytes(&self.buf)) {
+      Ordering::Less => return Err(BufferError::TooFewValues(len, buf_len)),
+      Ordering::Greater => return Err(BufferError::TooManyValues(len, buf_len)),
       _ => in_bytes,
     };
 
@@ -202,12 +199,12 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   }
 
   /// Fill the `Buffer` with a single value.
-  pub fn clear(&self, x: T) -> Result<(), BufferError> where T: Copy {
-    self.write_whole(&vec![x; self.len])
+  pub fn clear(&self, x: T) -> Result<(), BufferError<D>> where T: Copy {
+    self.write_whole(&vec![x; D::len(&self.buf)])
   }
 
   /// Fill the whole buffer with an array.
-  pub fn fill(&self, values: &[T]) -> Result<(), BufferError> {
+  pub fn fill(&self, values: &[T]) -> Result<(), BufferError<D>> {
     self.write_whole(values)
   }
 
@@ -224,120 +221,67 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   }
 
   /// Obtain an immutable slice view into the buffer.
-  pub fn as_slice(&self) -> Result<BufferSlice<T>, BufferError> {
-    let p = unsafe { D::as_slice::<T>(&self.buf).map_err(BufferError::DriverError)? };
+  pub fn as_slice(&self) -> Result<BufferSlice<T, D>, BufferError<D>> {
+    let ptr = unsafe { D::as_slice::<T>(&self.buf).map_err(BufferError::DriverError)? };
+    Ok(BufferSlice { buf: &self.buf, ptr })
   }
 
   /// Obtain a mutable slice view into the buffer.
-  pub fn as_slice_mut(&mut self) -> Result<BufferSliceMut<T>, BufferError> {
-    self.raw.as_slice_mut()
+  pub fn as_slice_mut(&mut self) -> Result<BufferSliceMut<T, D>, BufferError<D>> {
+    let ptr = unsafe { D::as_slice_mut::<T>(&mut self.buf).map_err(BufferError::DriverError)? };
+    Ok(BufferSliceMut { buf: &mut self.buf, ptr })
   }
 }
 
-impl<T> Deref for Buffer<T> {
-  type Target = RawBuffer;
+impl<T, D> Deref for Buffer<T, D> where D: BufferDriver {
+  type Target = D::Buffer;
 
   fn deref(&self) -> &Self::Target {
-    &self.raw
+    &self.buf
   }
 }
 
-impl<T> DerefMut for Buffer<T> {
+impl<T, D> DerefMut for Buffer<T, D> where D: BufferDriver {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.raw
+    &mut self.buf
   }
 }
 
-/// Raw buffer. Any buffer can be converted to that type. However, keep in mind that even though
-/// type erasure is safe, creating a buffer from a raw buffer is not.
-pub struct RawBuffer {
-  handle: GLuint,
-  bytes: usize,
-  len: usize,
-  state: Rc<RefCell<GraphicsState>>,
-}
-
-impl RawBuffer {
-  /// Obtain an immutable slice view into the buffer.
-  pub fn as_slice<T>(&self) -> Result<BufferSlice<T>, BufferError> {
-    unsafe {
-      self.state.borrow_mut().bind_array_buffer(self.handle);
-
-      let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *const T;
-
-      if ptr.is_null() {
-        return Err(BufferError::MapFailed);
-      }
-
-      Ok(BufferSlice { raw: self, ptr })
-    }
-  }
-
-  /// Obtain a mutable slice view into the buffer.
-  pub fn as_slice_mut<T>(&mut self) -> Result<BufferSliceMut<T>, BufferError> {
-    unsafe {
-      self.state.borrow_mut().bind_array_buffer(self.handle);
-
-      let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_WRITE) as *mut T;
-
-      if ptr.is_null() {
-        return Err(BufferError::MapFailed);
-      }
-
-      Ok(BufferSliceMut { raw: self, ptr })
-    }
-  }
-
-  // Get the underlying GPU handle.
-  pub fn handle(&self) -> GLuint {
-    self.handle
-  }
-
-  /// Get the length of the buffer.
-  #[inline(always)]
-  pub fn len(&self) -> usize {
-    self.len
-  }
-}
-
-impl Drop for RawBuffer {
+impl<T, D> Drop for Buffer<T, D> where D: BufferDriver {
   fn drop(&mut self) {
-    unsafe { gl::DeleteBuffers(1, &self.handle) }
+    unsafe { D::drop(self) }
   }
 }
 
-impl<T> From<Buffer<T>> for RawBuffer {
-  fn from(buffer: Buffer<T>) -> Self {
-    buffer.to_raw()
+impl<T, D> From<Buffer<T, D>> for D::Buffer where D: BufferDriver {
+  fn from(buffer: Buffer<T, D>) -> Self {
+    buffer.to_driver_buf()
   }
 }
 
 /// A buffer slice mapped into GPU memory.
 pub struct BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   // Borrowed raw buffer.
-  raw: &'a RawBuffer,
+  buf: &'a D::Buffer,
   // Raw pointer into the GPU memory.
   ptr: *const T,
 }
 
-impl<'a, T> Drop for BufferSlice<'a, T> where T: 'a {
+impl<'a, T, D> Drop for BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   fn drop(&mut self) {
-    unsafe {
-      self.raw.state.borrow_mut().bind_array_buffer(self.raw.handle);
-      gl::UnmapBuffer(gl::ARRAY_BUFFER);
-    }
+    unsafe { D::drop_slice(&mut self.buf, self.ptr) }
   }
 }
 
-impl<'a, T> Deref for BufferSlice<'a, T> where T: 'a {
+impl<'a, T, D> Deref for BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   type Target = [T];
 
   fn deref(&self) -> &Self::Target {
-    unsafe { slice::from_raw_parts(self.ptr, self.raw.len) }
+    unsafe { slice::from_raw_parts(self.ptr, D::len(&self.buf)) }
   }
 }
 
-impl<'a, 'b, T> IntoIterator for &'b BufferSlice<'a, T> where T: 'a {
+impl<'a, 'b, T, D> IntoIterator for &'b BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   type IntoIter = slice::Iter<'b, T>;
   type Item = &'b T;
 
@@ -347,23 +291,20 @@ impl<'a, 'b, T> IntoIterator for &'b BufferSlice<'a, T> where T: 'a {
 }
 
 /// A buffer mutable slice into GPU memory.
-pub struct BufferSliceMut<'a, T> where T: 'a {
+pub struct BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   // Borrowed buffer.
-  raw: &'a RawBuffer,
+  buf: &'a D::Buffer,
   // Raw pointer into the GPU memory.
   ptr: *mut T,
 }
 
-impl<'a, T> Drop for BufferSliceMut<'a, T> where T: 'a {
+impl<'a, T, D> Drop for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   fn drop(&mut self) {
-    unsafe {
-      self.raw.state.borrow_mut().bind_array_buffer(self.raw.handle);
-      gl::UnmapBuffer(gl::ARRAY_BUFFER);
-    }
+    unsafe { D::drop_slice_mut(&mut self.buf, self.ptr) }
   }
 }
 
-impl<'a, 'b, T> IntoIterator for &'b BufferSliceMut<'a, T> where T: 'a {
+impl<'a, 'b, T, D> IntoIterator for &'b BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   type IntoIter = slice::Iter<'b, T>;
   type Item = &'b T;
 
@@ -372,7 +313,7 @@ impl<'a, 'b, T> IntoIterator for &'b BufferSliceMut<'a, T> where T: 'a {
   }
 }
 
-impl<'a, 'b, T> IntoIterator for &'b mut BufferSliceMut<'a, T> where T: 'a {
+impl<'a, 'b, T, D> IntoIterator for &'b mut BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   type IntoIter = slice::IterMut<'b, T>;
   type Item = &'b mut T;
 
@@ -381,17 +322,17 @@ impl<'a, 'b, T> IntoIterator for &'b mut BufferSliceMut<'a, T> where T: 'a {
   }
 }
 
-impl<'a, T> Deref for BufferSliceMut<'a, T> where T: 'a {
+impl<'a, T, D> Deref for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   type Target = [T];
 
   fn deref(&self) -> &Self::Target {
-    unsafe { slice::from_raw_parts(self.ptr, self.raw.len) }
+    unsafe { slice::from_raw_parts(self.ptr, D::len(&self.buf)) }
   }
 }
 
-impl<'a, T> DerefMut for BufferSliceMut<'a, T> where T: 'a {
+impl<'a, T, D> DerefMut for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    unsafe { slice::from_raw_parts_mut(self.ptr, self.raw.len) }
+    unsafe { slice::from_raw_parts_mut(self.ptr, D::len(&self.buf)) }
   }
 }
 

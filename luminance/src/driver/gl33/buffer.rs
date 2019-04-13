@@ -65,6 +65,14 @@ unsafe impl BufferDriver for GL33 {
     })
   }
 
+  unsafe fn len(buffer: &mut Self::Buffer) -> usize {
+    buffer.len
+  }
+
+  unsafe fn bytes(buffer: &mut Self::Buffer) -> usize {
+    buffer.bytes
+  }
+
   unsafe fn drop(buffer: &mut Self::Buffer) {
     gl::DeleteBuffers(1, &mut buffer.handle)
   }
