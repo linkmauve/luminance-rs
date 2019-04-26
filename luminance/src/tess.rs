@@ -88,9 +88,9 @@ pub enum Mode {
 
 /// Error that can occur while trying to map GPU tessellation to host code.
 #[derive(Debug, Eq, PartialEq)]
-pub enum TessMapError {
+pub enum TessMapError<D> where D: BufferDriver {
   /// The CPU mapping failed due to buffer errors.
-  VertexBufferMapFailed(BufferError),
+  VertexBufferMapFailed(BufferError<D>),
   /// Target type is not the same as the one stored in the buffer.
   TypeMismatch(VertexDesc, VertexDesc),
   /// The CPU mapping failed because you cannot map an attributeless tessellation since it doesn’t
@@ -101,7 +101,7 @@ pub enum TessMapError {
   ForbiddenDeinterleavedMapping,
 }
 
-impl fmt::Display for TessMapError {
+impl<D> fmt::Display for TessMapError<D> where D: BufferDriver {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     match *self {
       TessMapError::VertexBufferMapFailed(ref e) => write!(f, "cannot map tessellation buffer: {}", e),
@@ -125,28 +125,27 @@ struct VertexBuffer<D> where D: BufferDriver {
   buf: D::Buffer,
 }
 
+enum TessBuilderError<D> where D: TessDriver {
+}
+
 /// Build tessellations the easy way.
-pub struct TessBuilder<'a, C, D> where D: BufferDriver {
+pub struct TessBuilder<'a, C> where C: GraphicsContext {
   ctx: &'a mut C,
-  vertex_buffers: Vec<VertexBuffer<D>>,
-  index_buffer: Option<(D::Buffer, TessIndexType)>,
+  inner: C::Driver::TessBuilder,
   restart_index: Option<u32>,
   mode: Mode,
   vert_nb: usize,
-  instance_buffers: Vec<VertexBuffer<D>>,
   inst_nb: usize,
 }
 
-impl<'a, C, D> TessBuilder<'a, C, D> where D: BufferDriver {
-  pub fn new(ctx: &'a mut C) -> Self {
+impl<'a, C> TessBuilder<'a, C> where D: BufferDriver {
+  pub fn new(ctx: &'a mut C) -> Result<Self, TessBuilderError<C::Driver> {
     TessBuilder {
       ctx,
-      vertex_buffers: Vec::new(),
-      index_buffer: None,
+      inner:
       restart_index: None,
       mode: Mode::Point,
       vert_nb: 0,
-      instance_buffers: Vec::new(),
       inst_nb: 0,
     }
   }
@@ -437,23 +436,23 @@ unsafe impl TessIndex for u32 {
 }
 
 /// All the extra data required when doing indexed drawing.
-struct IndexedDrawState {
-  _buffer: RawBuffer,
+struct IndexedDrawState<D> where D: BufferDriver {
+  _buffer: D::Buffer,
   restart_index: Option<u32>,
   index_type: TessIndexType,
 }
 
-pub struct Tess {
+pub struct Tess<D> where D: TessDriver {
   mode: GLenum,
   vert_nb: usize,
   inst_nb: usize,
   vao: GLenum,
-  vertex_buffers: Vec<VertexBuffer>,
-  instance_buffers: Vec<VertexBuffer>,
-  index_state: Option<IndexedDrawState>,
+  vertex_buffers: Vec<VertexBuffer<D>>,
+  instance_buffers: Vec<VertexBuffer<D>>,
+  index_state: Option<IndexedDrawState<D>>,
 }
 
-impl Tess {
+impl<D> Tess<D> where D: BufferDriver {
   fn render<C>(&self, ctx: &mut C, start_index: usize, vert_nb: usize, inst_nb: usize)
   where C: GraphicsContext {
     let vert_nb = vert_nb as GLsizei;
@@ -717,9 +716,9 @@ fn opengl_mode(mode: Mode) -> GLenum {
 ///
 /// This type enables slicing a tessellation on the fly so that we can render patches of it.
 #[derive(Clone)]
-pub struct TessSlice<'a> {
+pub struct TessSlice<'a, D> where D: BufferDriver {
   /// Tessellation to render.
-  tess: &'a Tess,
+  tess: &'a Tess<D>,
   /// Start index (vertex) in the tessellation.
   start_index: usize,
   /// Number of vertices to pick from the tessellation. If `None`, all of them are selected.
@@ -728,10 +727,10 @@ pub struct TessSlice<'a> {
   inst_nb: usize,
 }
 
-impl<'a> TessSlice<'a> {
+impl<'a, D> TessSlice<'a, D> where D: BufferDriver {
   /// Create a tessellation render that will render the whole input tessellation with only one
   /// instance.
-  pub fn one_whole(tess: &'a Tess) -> Self {
+  pub fn one_whole(tess: &'a Tess<D>) -> Self {
     TessSlice {
       tess,
       start_index: 0,
@@ -751,7 +750,7 @@ impl<'a> TessSlice<'a> {
   /// # Panic
   ///
   /// Panic if the number of vertices is higher to the capacity of the tessellation’s vertex buffer.
-  pub fn one_sub(tess: &'a Tess, vert_nb: usize) -> Self {
+  pub fn one_sub(tess: &'a Tess<D>, vert_nb: usize) -> Self {
     if vert_nb > tess.vert_nb {
       panic!(
         "cannot render {} vertices for a tessellation which vertex capacity is {}",
@@ -777,7 +776,7 @@ impl<'a> TessSlice<'a> {
   /// Panic if the start vertex is higher to the capacity of the tessellation’s vertex buffer.
   ///
   /// Panic if the number of vertices is higher to the capacity of the tessellation’s vertex buffer.
-  pub fn one_slice(tess: &'a Tess, start: usize, nb: usize) -> Self {
+  pub fn one_slice(tess: &'a Tess<D>, start: usize, nb: usize) -> Self {
     if start > tess.vert_nb {
       panic!(
         "cannot render {} vertices starting at vertex {} for a tessellation which vertex capacity is {}",
@@ -808,36 +807,36 @@ impl<'a> TessSlice<'a> {
   }
 }
 
-impl<'a> From<&'a Tess> for TessSlice<'a> {
-  fn from(tess: &'a Tess) -> Self {
+impl<'a, D> From<&'a Tess<D>> for TessSlice<'a, D> where D: BufferDriver {
+  fn from(tess: &'a Tess<D>) -> Self {
     TessSlice::one_whole(tess)
   }
 }
 
-pub trait TessSliceIndex<Idx> {
-  fn slice(&self, idx: Idx) -> TessSlice;
+pub trait TessSliceIndex<Idx, D> where D: BufferDriver {
+  fn slice<'a>(&'a self, idx: Idx) -> TessSlice<'a, D>;
 }
 
-impl TessSliceIndex<RangeFull> for Tess {
-  fn slice<'a>(&self, _: RangeFull) -> TessSlice {
+impl<D> TessSliceIndex<RangeFull, D> for Tess<D> where D: BufferDriver {
+  fn slice<'a>(&self, _: RangeFull) -> TessSlice<'a, D> {
     TessSlice::one_whole(self)
   }
 }
 
-impl TessSliceIndex<RangeTo<usize>> for Tess {
-  fn slice(&self, to: RangeTo<usize>) -> TessSlice {
+impl<D> TessSliceIndex<RangeTo<usize>, D> for Tess<D> where D: BufferDriver {
+  fn slice<'a>(&self, to: RangeTo<usize>) -> TessSlice<'a, D> {
     TessSlice::one_sub(self, to.end)
   }
 }
 
-impl TessSliceIndex<RangeFrom<usize>> for Tess {
-  fn slice(&self, from: RangeFrom<usize>) -> TessSlice {
+impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: BufferDriver {
+  fn slice<'a>(&self, from: RangeFrom<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, from.start, self.vert_nb)
   }
 }
 
-impl TessSliceIndex<Range<usize>> for Tess {
-  fn slice(&self, range: Range<usize>) -> TessSlice {
+impl TessSliceIndex<Range<usize>> for Tess<D> where D: BufferDriver {
+  fn slice<'a>(&self, range: Range<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, range.start, range.end)
   }
 }

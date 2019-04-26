@@ -17,9 +17,9 @@ use crate::texture;
 use crate::vertex_restart;
 
 /// Main driver, providing all graphics-related features.
-pub trait Driver: BufferDriver + RenderStateDriver + FramebufferDriver + TextureDriver {}
+pub trait Driver: BufferDriver + RenderStateDriver + FramebufferDriver + TextureDriver + TessDriver {}
 
-impl<T> Driver for T where T: BufferDriver + RenderStateDriver + FramebufferDriver + TextureDriver {}
+impl<T> Driver for T where T: BufferDriver + RenderStateDriver + FramebufferDriver + TextureDriver + TessDriver {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
@@ -191,4 +191,22 @@ pub unsafe trait TextureDriver {
   ) -> Result<Vec<P::RawEncoding>, Self::Err>
   where P: pixel::Pixel,
         P::RawEncoding: Copy;
+}
+
+/// Tessellation implementation.
+pub unsafe trait TessDriver {
+  /// Representation of a graphics tessellation by this driver.
+  type Tess;
+
+  /// Representation of a graphics tessellation builder by this driver.
+  type TessBuilder;
+
+  /// Error that might occur with tessellations.
+  type Err: Display;
+
+  /// Create an empty tessellation builder.
+  unsafe fn new_tess_builder(&mut self) -> Result<Self::TessBuilder, Self::Err>;
+
+  /// Drop a tessellation.
+  unsafe fn drop_tess(tess: &mut Self::Tess);
 }
