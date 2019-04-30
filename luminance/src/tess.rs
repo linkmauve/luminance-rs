@@ -162,38 +162,38 @@ impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
   pub fn add_vertices<V, W>(mut self, vertices: W) -> Result<Self, TessError<C::Driver>> where W: AsRef<[V]>, V: Vertex {
     let vertices = vertices.as_ref();
 
-    let vb = VertexBuffer {
-      fmt: V::vertex_desc(),
-      buf: Buffer::from_slice(self.ctx, vertices).map_err(TessError::UnderlyingBufferError)?.to_driver_buf(),
-    };
+    unsafe {
+      self.ctx.driver()
+        .add_vertices(&mut self.inner, vertices)
+        .map_err(TessError::DriverError)?;
+    }
 
-    self.vertex_buffers.push(vb);
-
-    self
+    Ok(self)
   }
 
   pub fn add_instances<V, W>(mut self, instances: W) -> Result<Self, TessError<C::Driver>> where W: AsRef<[V]>, V: Vertex {
     let instances = instances.as_ref();
 
-    let vb = VertexBuffer {
-      fmt: V::vertex_desc(),
-      buf: Buffer::from_slice(self.ctx, instances).map_err(TessError::UnderlyingBufferError)?.to_driver_buf(),
-    };
+    unsafe {
+      self.ctx.driver()
+        .add_instances(&mut self.inner, instances)
+        .map_err(TessError::DriverError)?;
+    }
 
-    self.instance_buffers.push(vb);
-
-    self
+    Ok(self)
   }
 
   /// Set vertex indices in order to specify how vertices should be picked by the GPU pipeline.
   pub fn set_indices<T, I>(mut self, indices: T) -> Result<Self, TessError<C::Driver>> where T: AsRef<[I]>, I: TessIndex  {
     let indices = indices.as_ref();
 
-    // create a new raw buffer containing the indices and turn it into a vertex buffer
-    let buf = Buffer::from_slice(self.ctx, indices).map_err(TessError::UnderlyingBufferError)?.to_dirver_buf();
-    self.index_buffer = Some((buf, I::INDEX_TYPE));
+    unsafe {
+      self.ctx.driver()
+        .set_indices(&mut self.inner, indices)
+        .map_err(TessError::DriverError)?;
+    }
 
-    self
+    Ok(self)
   }
 
   pub fn set_mode(mut self, mode: Mode) -> Self {
@@ -217,7 +217,7 @@ impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
     self
   }
 
-  pub fn build(self) -> Result<Tess, TessError<C::Driver>> {
+  pub fn build(self) -> Result<Tess<C::Driver>, TessError<C::Driver>> {
     // try to deduce the number of vertices to render if it’s not specified
     let vert_nb = self.guess_vert_nb_or_fail()?;
     let inst_nb = self.guess_inst_nb_or_fail()?;
@@ -276,7 +276,7 @@ impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
 
   /// Guess how many vertices there are to render based on the current configuration or fail if
   /// incorrectly configured.
-  fn guess_vert_nb_or_fail(&self) -> Result<usize, TessError<C.:Driver>> {
+  fn guess_vert_nb_or_fail(&self) -> Result<usize, TessError<C::Driver>> {
     if self.vert_nb == 0 {
       // we don’t have an explicit vertex number to render; go and guess!
       if let Some(ref index_buffer) = self.index_buffer {
@@ -377,11 +377,11 @@ impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
   }
 }
 
-pub enum TessError<D> where D: BufferDriver {
+pub enum TessError<D> where D: TessDriver {
+  DriverError(<D as TessDriver>::Err),
   AttributelessError(String),
   LengthIncoherency(usize),
   Overflow(usize, usize),
-  UnderlyingBufferError(BufferError<D>)
 }
 
 /// Possible tessellation index types.

@@ -144,7 +144,12 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
 
   /// Create a buffer out of a slice.
   pub fn from_slice<C>(ctx: &mut C, slice: &[T]) -> Result<Self, BufferError<D>> where C: GraphicsContext<Driver = D> {
-    ctx.driver()
+    Self::from_slice_driver(ctx.driver(), slice)
+  }
+
+  /// Create a buffer out of a slice (driver version).
+  pub(crate) fn from_slice_driver(driver: &mut D, slice: &[T]) -> Result<Self, BufferError<D>> {
+    driver
       .from_slice::<T>(slice)
       .map(|buf| Buffer { buf, _t: PhantomData })
       .map_err(BufferError::DriverError)

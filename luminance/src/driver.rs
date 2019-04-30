@@ -13,6 +13,7 @@ use crate::depth_test;
 use crate::face_culling;
 use crate::framebuffer;
 use crate::pixel;
+use crate::tess;
 use crate::texture;
 use crate::vertex;
 use crate::vertex_restart;
@@ -206,14 +207,37 @@ pub unsafe trait TessDriver: BufferDriver {
   type Err: Display;
 
   /// Create an empty tessellation builder.
-  unsafe fn new_tess_builder(&mut self) -> Result<Self::TessBuilder, Self::Err>;
+  unsafe fn new_tess_builder(&mut self) -> Result<Self::TessBuilder, <Self as TessDriver>::Err>;
 
   /// Add vertices to a tessellation builder.
-  unsafe fn add_vertices(
+  unsafe fn add_vertices<V>(
+    &mut self,
     builder: &mut Self::TessBuilder,
     vertices: &[V]
-  ) -> Result<(), Self::Err>
+  ) -> Result<(), <Self as TessDriver>::Err>
   where V: vertex::Vertex;
+
+  /// Add instances to a tessellation builder.
+  unsafe fn add_instances<V>(
+    &mut self,
+    builder: &mut Self::TessBuilder,
+    instances: &[V]
+  ) -> Result<(), <Self as TessDriver>::Err>
+  where V: vertex::Vertex;
+
+  /// Set vertex indices in order to specify how vertices should be picked by the GPU pipeline.
+  unsafe fn set_indices<I>(
+    &mut self,
+    builder: &mut Self::TessBuilder,
+    indices: &[I]
+  ) -> Result<(), <Self as TessDriver>::Err>
+  where I: tess::TessIndex;
+
+  /// Build a tessellation out of a tessellation builder.
+  unsafe fn build_tess(
+    &mut self,
+    builder: Self::TessBuilder
+  ) -> Result<Self::Tess, <Self as TessDriver>::Err>;
 
   /// Drop a tessellation.
   unsafe fn drop_tess(tess: &mut Self::Tess);
