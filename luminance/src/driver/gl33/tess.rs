@@ -1,3 +1,5 @@
+use gl::types::*;
+
 use crate::driver::TessDriver;
 use crate::driver::gl33::GL33;
 use crate::driver::gl33::buffer::RawBuffer;
@@ -24,6 +26,13 @@ struct IndexBuffer {
   buf: RawBuffer
 }
 
+struct Tess {
+  // OpenGL mode.
+  mode: GLenum,
+  // Vertex array object.
+  vao: GLenum
+}
+
 impl TessDriver for GL33 {
   type Tess = ();
 
@@ -37,5 +46,9 @@ impl TessDriver for GL33 {
       index_buffer: None,
       instance_buffers: Vec::new()
     })
+  }
+
+  unsafe fn drop_tess(tess: &mut Self::Tess) {
+    gl::DeleteVertexArrays(1, &self.vao);
   }
 }

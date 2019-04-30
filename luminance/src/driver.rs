@@ -14,6 +14,7 @@ use crate::face_culling;
 use crate::framebuffer;
 use crate::pixel;
 use crate::texture;
+use crate::vertex;
 use crate::vertex_restart;
 
 /// Main driver, providing all graphics-related features.
@@ -194,7 +195,7 @@ pub unsafe trait TextureDriver {
 }
 
 /// Tessellation implementation.
-pub unsafe trait TessDriver {
+pub unsafe trait TessDriver: BufferDriver {
   /// Representation of a graphics tessellation by this driver.
   type Tess;
 
@@ -206,6 +207,13 @@ pub unsafe trait TessDriver {
 
   /// Create an empty tessellation builder.
   unsafe fn new_tess_builder(&mut self) -> Result<Self::TessBuilder, Self::Err>;
+
+  /// Add vertices to a tessellation builder.
+  unsafe fn add_vertices(
+    builder: &mut Self::TessBuilder,
+    vertices: &[V]
+  ) -> Result<(), Self::Err>
+  where V: vertex::Vertex;
 
   /// Drop a tessellation.
   unsafe fn drop_tess(tess: &mut Self::Tess);

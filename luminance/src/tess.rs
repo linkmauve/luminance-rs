@@ -60,9 +60,8 @@ use std::os::raw::c_void;
 use std::ptr;
 
 use crate::buffer::{Buffer, BufferError, BufferSlice, BufferSliceMut};
-use crate::driver::BufferDriver;
+use crate::driver::{BufferDriver, TessDriver};
 use crate::context::GraphicsContext;
-use crate::metagl::*;
 use crate::vertex::{
   VertexBufferDesc, Vertex, VertexAttribDim, VertexAttribDesc, VertexAttribType, VertexDesc,
   VertexInstancing
@@ -126,32 +125,33 @@ struct VertexBuffer<D> where D: BufferDriver {
 }
 
 enum TessBuilderError<D> where D: TessDriver {
+  CannotCreate(D::Err)
 }
 
 /// Build tessellations the easy way.
-pub struct TessBuilder<'a, C> where C: GraphicsContext {
+pub struct TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
   ctx: &'a mut C,
-  inner: C::Driver::TessBuilder,
+  inner: <C::Driver as TessDriver>::TessBuilder,
   restart_index: Option<u32>,
   mode: Mode,
   vert_nb: usize,
   inst_nb: usize,
 }
 
-impl<'a, C> TessBuilder<'a, C> where D: BufferDriver {
-  pub fn new(ctx: &'a mut C) -> Result<Self, TessBuilderError<C::Driver> {
-    TessBuilder {
+impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
+  pub fn new(ctx: &'a mut C) -> Result<Self, TessBuilderError<C::Driver>> {
+    let inner = ctx.driver().new_tess_builder().map_err(TessBuilderError::CannotCreate)?;
+
+    Ok(TessBuilder {
       ctx,
-      inner:
+      inner,
       restart_index: None,
       mode: Mode::Point,
       vert_nb: 0,
       inst_nb: 0,
-    }
+    })
   }
-}
 
-impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: BufferDriver {
   /// Add vertices to be part of the tessellation.
   ///
   /// This method can be used in several ways. First, you can decide to use interleaved memory, in
@@ -159,7 +159,7 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
   /// buffer. Second, you can opt-in to use deinterleaved memory, in which case you will have
   /// several, smaller buffers of borrowed data and you will issue a call to this method for all of
   /// them.
-  pub fn add_vertices<V, W>(mut self, vertices: W) -> Result<Self, TessError<D>> where W: AsRef<[V]>, V: Vertex {
+  pub fn add_vertices<V, W>(mut self, vertices: W) -> Result<Self, TessError<C::Driver>> where W: AsRef<[V]>, V: Vertex {
     let vertices = vertices.as_ref();
 
     let vb = VertexBuffer {
@@ -172,7 +172,7 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
     self
   }
 
-  pub fn add_instances<V, W>(mut self, instances: W) -> Result<Self, TessError<D>> where W: AsRef<[V]>, V: Vertex {
+  pub fn add_instances<V, W>(mut self, instances: W) -> Result<Self, TessError<C::Driver>> where W: AsRef<[V]>, V: Vertex {
     let instances = instances.as_ref();
 
     let vb = VertexBuffer {
@@ -186,7 +186,7 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
   }
 
   /// Set vertex indices in order to specify how vertices should be picked by the GPU pipeline.
-  pub fn set_indices<T, I>(mut self, indices: T) -> Result<Self, TessError<D>> where T: AsRef<[I]>, I: TessIndex  {
+  pub fn set_indices<T, I>(mut self, indices: T) -> Result<Self, TessError<C::Driver>> where T: AsRef<[I]>, I: TessIndex  {
     let indices = indices.as_ref();
 
     // create a new raw buffer containing the indices and turn it into a vertex buffer
@@ -217,7 +217,7 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
     self
   }
 
-  pub fn build(self) -> Result<Tess, TessError<D>> {
+  pub fn build(self) -> Result<Tess, TessError<C::Driver>> {
     // try to deduce the number of vertices to render if it’s not specified
     let vert_nb = self.guess_vert_nb_or_fail()?;
     let inst_nb = self.guess_inst_nb_or_fail()?;
@@ -225,7 +225,7 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
   }
 
   /// Build a tessellation based on a given number of vertices to render by default.
-  fn build_tess(self, vert_nb: usize, inst_nb: usize) -> Result<Tess, TessError<D>> {
+  fn build_tess(self, vert_nb: usize, inst_nb: usize) -> Result<Tess, TessError<C::Driver>> {
     let mut vao: GLuint = 0;
 
     unsafe {
@@ -276,7 +276,7 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
 
   /// Guess how many vertices there are to render based on the current configuration or fail if
   /// incorrectly configured.
-  fn guess_vert_nb_or_fail(&self) -> Result<usize, TessError> {
+  fn guess_vert_nb_or_fail(&self) -> Result<usize, TessError<C.:Driver>> {
     if self.vert_nb == 0 {
       // we don’t have an explicit vertex number to render; go and guess!
       if let Some(ref index_buffer) = self.index_buffer {
@@ -329,13 +329,13 @@ impl<'a, C, D> TessBuilder<'a, C, D> where C: GraphicsContext<Driver = D>, D: Bu
   }
 
   /// Check whether any vertex buffer is incoherent in its length according to the input length.
-  fn check_incoherent_buffers<'b, B>(mut buffers: B, len: usize) -> bool where B: Iterator<Item = &'b VertexBuffer> {
+  fn check_incoherent_buffers<'b, B>(mut buffers: B, len: usize) -> bool where B: Iterator<Item = &'b VertexBuffer<C::Driver>> {
     !buffers.all(|vb| vb.buf.len() == len)
   }
 
   /// Guess how many instances there are to render based on the current configuration or fail if
   /// incorrectly configured.
-  fn guess_inst_nb_or_fail(&self) -> Result<usize, TessError> {
+  fn guess_inst_nb_or_fail(&self) -> Result<usize, TessError<C::Driver>> {
     if self.inst_nb == 0 {
       // we don’t have an explicit instance number to render; go and guess!
       // deduce the number of instances based on the instance buffers; they all must be of the same
@@ -443,18 +443,17 @@ struct IndexedDrawState<D> where D: BufferDriver {
 }
 
 pub struct Tess<D> where D: TessDriver {
-  mode: GLenum,
+  inner: D::Tess,
   vert_nb: usize,
   inst_nb: usize,
-  vao: GLenum,
   vertex_buffers: Vec<VertexBuffer<D>>,
   instance_buffers: Vec<VertexBuffer<D>>,
   index_state: Option<IndexedDrawState<D>>,
 }
 
-impl<D> Tess<D> where D: BufferDriver {
+impl<D> Tess<D> where D: TessDriver {
   fn render<C>(&self, ctx: &mut C, start_index: usize, vert_nb: usize, inst_nb: usize)
-  where C: GraphicsContext {
+  where C: GraphicsContext<Driver = D> {
     let vert_nb = vert_nb as GLsizei;
     let inst_nb = inst_nb as GLsizei;
 
@@ -497,7 +496,7 @@ impl<D> Tess<D> where D: BufferDriver {
     }
   }
 
-  pub fn as_slice<'a, V>(&'a self) -> Result<BufferSlice<V>, TessMapError> where V: Vertex {
+  pub fn as_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>> where V: Vertex {
     match self.vertex_buffers.len() {
       0 => Err(TessMapError::ForbiddenAttributelessMapping),
 
@@ -516,7 +515,8 @@ impl<D> Tess<D> where D: BufferDriver {
     }
   }
 
-  pub fn as_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V>, TessMapError> where V: Vertex {
+  pub fn as_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
+  where V: Vertex {
     match self.vertex_buffers.len() {
       0 => Err(TessMapError::ForbiddenAttributelessMapping),
 
@@ -535,7 +535,8 @@ impl<D> Tess<D> where D: BufferDriver {
     }
   }
 
-  pub fn as_inst_slice<'a, V>(&'a self) -> Result<BufferSlice<V>, TessMapError> where V: Vertex {
+  pub fn as_inst_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>>
+  where V: Vertex {
     match self.instance_buffers.len() {
       0 => Err(TessMapError::ForbiddenAttributelessMapping),
 
@@ -554,7 +555,8 @@ impl<D> Tess<D> where D: BufferDriver {
     }
   }
 
-  pub fn as_inst_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V>, TessMapError> where V: Vertex {
+  pub fn as_inst_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, d>, TessMapError<D>>
+  where V: Vertex {
     match self.instance_buffers.len() {
       0 => Err(TessMapError::ForbiddenAttributelessMapping),
 
@@ -574,11 +576,9 @@ impl<D> Tess<D> where D: BufferDriver {
   }
 }
 
-impl Drop for Tess {
+impl<D> Drop for Tess<D> where D: TessDriver {
   fn drop(&mut self) {
-    unsafe {
-      gl::DeleteVertexArrays(1, &self.vao);
-    }
+    unsafe { D::drop_tess(self) }
   }
 }
 
@@ -716,7 +716,7 @@ fn opengl_mode(mode: Mode) -> GLenum {
 ///
 /// This type enables slicing a tessellation on the fly so that we can render patches of it.
 #[derive(Clone)]
-pub struct TessSlice<'a, D> where D: BufferDriver {
+pub struct TessSlice<'a, D> where D: TessDriver {
   /// Tessellation to render.
   tess: &'a Tess<D>,
   /// Start index (vertex) in the tessellation.
@@ -727,7 +727,7 @@ pub struct TessSlice<'a, D> where D: BufferDriver {
   inst_nb: usize,
 }
 
-impl<'a, D> TessSlice<'a, D> where D: BufferDriver {
+impl<'a, D> TessSlice<'a, D> where D: TessDriver {
   /// Create a tessellation render that will render the whole input tessellation with only one
   /// instance.
   pub fn one_whole(tess: &'a Tess<D>) -> Self {
@@ -800,42 +800,42 @@ impl<'a, D> TessSlice<'a, D> where D: BufferDriver {
   }
 
   /// Render a tessellation.
-  pub fn render<C>(&self, ctx: &mut C) where C: GraphicsContext {
+  pub fn render<C>(&self, ctx: &mut C) where C: GraphicsContext<Driver = D> {
     self
       .tess
       .render(ctx, self.start_index, self.vert_nb, self.inst_nb);
   }
 }
 
-impl<'a, D> From<&'a Tess<D>> for TessSlice<'a, D> where D: BufferDriver {
-  fn from(tess: &'a Tess<D>) -> Self {
+impl<'a, D> From<&'a Tess<D>> for TessSlice<'a, D> where D: TessDriver {
+  fn from(tess: &'a Tess<C>) -> Self {
     TessSlice::one_whole(tess)
   }
 }
 
-pub trait TessSliceIndex<Idx, D> where D: BufferDriver {
+pub trait TessSliceIndex<Idx, D> where D: TessDriver {
   fn slice<'a>(&'a self, idx: Idx) -> TessSlice<'a, D>;
 }
 
-impl<D> TessSliceIndex<RangeFull, D> for Tess<D> where D: BufferDriver {
+impl<D> TessSliceIndex<RangeFull, D> for Tess<D> where D: TessDriver {
   fn slice<'a>(&self, _: RangeFull) -> TessSlice<'a, D> {
     TessSlice::one_whole(self)
   }
 }
 
-impl<D> TessSliceIndex<RangeTo<usize>, D> for Tess<D> where D: BufferDriver {
+impl<D> TessSliceIndex<RangeTo<usize>, D> for Tess<D> where D: TessDriver {
   fn slice<'a>(&self, to: RangeTo<usize>) -> TessSlice<'a, D> {
     TessSlice::one_sub(self, to.end)
   }
 }
 
-impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: BufferDriver {
+impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: TessDriver {
   fn slice<'a>(&self, from: RangeFrom<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, from.start, self.vert_nb)
   }
 }
 
-impl TessSliceIndex<Range<usize>> for Tess<D> where D: BufferDriver {
+impl<D> TessSliceIndex<Range<usize>> for Tess<D> where D: TessDriver {
   fn slice<'a>(&self, range: Range<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, range.start, range.end)
   }
