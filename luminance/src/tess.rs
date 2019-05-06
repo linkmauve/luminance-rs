@@ -478,43 +478,16 @@ impl<D> Tess<D> where D: TessDriver {
     }
   }
 
-  pub fn as_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>> where V: Vertex {
-    match self.vertex_buffers.len() {
-      0 => Err(TessMapError::ForbiddenAttributelessMapping),
-
-      1 => {
-        let vb = &self.vertex_buffers[0];
-        let target_fmt = V::vertex_desc(); // costs a bit
-
-        if vb.fmt != target_fmt {
-          Err(TessMapError::TypeMismatch(vb.fmt.clone(), target_fmt))
-        } else {
-          vb.buf.as_slice().map_err(TessMapError::VertexBufferMapFailed)
-        }
-      }
-
-      _ => Err(TessMapError::ForbiddenDeinterleavedMapping),
-    }
+  pub fn as_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>>
+  where V: Vertex {
+    let buf = D::tess_buffer(&self.inner).map_err(TessMapError::DriverError)?;
+    BufferSlice::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 
   pub fn as_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
   where V: Vertex {
-    match self.vertex_buffers.len() {
-      0 => Err(TessMapError::ForbiddenAttributelessMapping),
-
-      1 => {
-        let vb = &mut self.vertex_buffers[0];
-        let target_fmt = V::vertex_desc(); // costs a bit
-
-        if vb.fmt != target_fmt {
-          Err(TessMapError::TypeMismatch(vb.fmt.clone(), target_fmt))
-        } else {
-          vb.buf.as_slice_mut().map_err(TessMapError::VertexBufferMapFailed)
-        }
-      }
-
-      _ => Err(TessMapError::ForbiddenDeinterleavedMapping),
-    }
+    let buf = D::tess_buffer_mut(&mut self.inner).map_err(TessMapError::DriverError)?;
+    BufferSliceMut::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 
   pub fn as_inst_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>>

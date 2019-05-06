@@ -117,7 +117,7 @@ impl TessBuilder {
     mut buffers: B,
     len: usize
   ) -> bool
-  where B: Iterator<Item = &'b VertexBuffer<C::Driver>> {
+  where B: Iterator<Item = &'b VertexBuffer> {
     !buffers.all(|vb| vb.buf.len() == len)
   }
 
@@ -297,6 +297,50 @@ impl TessDriver for GL33 {
 
   unsafe fn drop_tess(tess: &mut Self::Tess) {
     gl::DeleteVertexArrays(1, &self.vao);
+  }
+
+  unsafe fn tess_buffer<'a, V>(
+    tess: &'a Self::Tess
+  ) -> Result<&'a Self::Buffer, <Self as TessDriver>::Err>
+  where V: vertex::Vertex {
+    match tess.vertex_buffers.len() {
+      0 => Err(TessMapError::ForbiddenAttributelessMapping),
+
+      1 => {
+        let vb = &tess.vertex_buffers[0];
+        let target_fmt = V::vertex_desc(); // costs a bit
+
+        if vb.fmt != target_fmt {
+          Err(TessMapError::TypeMismatch(vb.fmt.clone(), target_fmt))
+        } else {
+          Ok(&vb.buf)
+        }
+      }
+
+      _ => Err(TessMapError::ForbiddenDeinterleavedMapping),
+    }
+  }
+
+  unsafe fn tess_buffer_mut<'a, V>(
+    tess: &'a mut Self::Tess
+  ) -> Result<&'a mut Self::Buffer, <Self as TessDriver>::Err>
+  where V: vertex::Vertex {
+    match tess.vertex_buffers.len() {
+      0 => Err(TessMapError::ForbiddenAttributelessMapping),
+
+      1 => {
+        let vb = &mut tess.vertex_buffers[0];
+        let target_fmt = V::vertex_desc(); // costs a bit
+
+        if vb.fmt != target_fmt {
+          Err(TessMapError::TypeMismatch(vb.fmt.clone(), target_fmt))
+        } else {
+          Ok(&mut vb.buf)
+        }
+      }
+
+      _ => Err(TessMapError::ForbiddenDeinterleavedMapping),
+    }
   }
 }
 

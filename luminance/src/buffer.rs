@@ -227,14 +227,12 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
 
   /// Obtain an immutable slice view into the buffer.
   pub fn as_slice(&self) -> Result<BufferSlice<T, D>, BufferError<D>> {
-    let ptr = unsafe { D::as_slice::<T>(&self.buf).map_err(BufferError::DriverError)? };
-    Ok(BufferSlice { buf: &self.buf, ptr })
+    BufferSlice::from_driver_buf_ref(&self.buf)
   }
 
   /// Obtain a mutable slice view into the buffer.
   pub fn as_slice_mut(&mut self) -> Result<BufferSliceMut<T, D>, BufferError<D>> {
-    let ptr = unsafe { D::as_slice_mut::<T>(&mut self.buf).map_err(BufferError::DriverError)? };
-    Ok(BufferSliceMut { buf: &mut self.buf, ptr })
+    BufferSliceMut::from_driver_buf_ref(&mut self.buf)
   }
 }
 
@@ -272,6 +270,14 @@ pub struct BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   ptr: *const T,
 }
 
+impl<'a, T, D> BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
+  /// Create a buffer slice from a driver’s buffer representation.
+  pub(crate) fn from_driver_buf_ref(buf: &D::Buffer) -> Result<Self, BufferError<D>> {
+    let ptr = unsafe { D::as_slice::<T>(buf).map_err(BufferError::DriverError)? };
+    Ok(BufferSlice { buf, ptr })
+  }
+}
+
 impl<'a, T, D> Drop for BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   fn drop(&mut self) {
     unsafe { D::drop_slice(&mut self.buf, self.ptr) }
@@ -301,6 +307,14 @@ pub struct BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   buf: &'a D::Buffer,
   // Raw pointer into the GPU memory.
   ptr: *mut T,
+}
+
+impl<'a, T, D> BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+  /// Create a buffer slice from a driver’s buffer representation.
+  pub(crate) fn from_driver_buf_ref(buf: &mut D::Buffer) -> Result<Self, BufferError<D>> {
+    let ptr = unsafe { D::as_slice_mut::<T>(buf).map_err(BufferError::DriverError)? };
+    Ok(BufferSliceMut { buf, ptr })
+  }
 }
 
 impl<'a, T, D> Drop for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
