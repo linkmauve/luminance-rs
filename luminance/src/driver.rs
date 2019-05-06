@@ -203,6 +203,12 @@ pub unsafe trait TessDriver: BufferDriver {
   /// Representation of a graphics tessellation builder by this driver.
   type TessBuilder;
 
+  /// Representation of an immutable tessellation slice.
+  type TessSlice;
+
+  /// Representation of a mutable tessellation slice.
+  type TessSliceMut;
+
   /// Error that might occur with tessellations.
   type Err: Display;
 
@@ -236,9 +242,23 @@ pub unsafe trait TessDriver: BufferDriver {
   /// Build a tessellation out of a tessellation builder.
   unsafe fn build_tess(
     &mut self,
-    builder: Self::TessBuilder
+    builder: Self::TessBuilder,
+    vert_nb: usize,
+    inst_nb: usize
   ) -> Result<Self::Tess, <Self as TessDriver>::Err>;
 
   /// Drop a tessellation.
   unsafe fn drop_tess(tess: &mut Self::Tess);
+
+  /// Get the (mapped) internal buffer of the tessellation in read-only mode.
+  unsafe fn as_slice<'a, V>(
+    tess: &'a Self::Tess
+  ) -> Result<Self::TessSlice, <Self as TessDriver>::Err>
+  where V: vertex::Vertex;
+
+  /// Get the (mapped) internal buffer of the tessellation in read-only mode.
+  unsafe fn as_slice_mut<'a, V>(
+    tess: &'a mut Self::Tess
+  ) -> Result<Self::TessSliceMut, <Self as TessDriver>::Err>
+  where V: vertex::Vertex;
 }

@@ -392,24 +392,6 @@ pub enum TessIndexType {
   U32,
 }
 
-impl TessIndexType {
-  fn to_glenum(self) -> GLenum {
-    match self {
-      TessIndexType::U8 => gl::UNSIGNED_BYTE,
-      TessIndexType::U16 => gl::UNSIGNED_SHORT,
-      TessIndexType::U32 => gl::UNSIGNED_INT,
-    }
-  }
-
-  fn bytes(self) -> usize {
-    match self {
-      TessIndexType::U8 => 1,
-      TessIndexType::U16 => 2,
-      TessIndexType::U32 => 4,
-    }
-  }
-}
-
 /// Class of tessellation indexes.
 ///
 /// Values which types implement this trait are allowed to be used to index tessellation in *indexed
