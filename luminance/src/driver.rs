@@ -244,14 +244,26 @@ pub unsafe trait TessDriver: BufferDriver {
   /// Drop a tessellation.
   unsafe fn drop_tess(tess: &mut Self::Tess);
 
-  /// Get the internal buffer of the tessellation in read-only mode.
-  unsafe fn tess_buffer<'a, V>(
+  /// Get the internal buffer of the tessellation’s vertices in read-only mode.
+  unsafe fn tess_vertex_buffer<'a, V>(
     tess: &'a Self::Tess
   ) -> Result<&'a Self::Buffer, <Self as TessDriver>::Err>
   where V: vertex::Vertex;
 
-  /// Get the internal buffer of the tessellation in read-write mode.
-  unsafe fn tess_buffer_mut<'a, V>(
+  /// Get the internal buffer of the tessellation’s vertices in read-write mode.
+  unsafe fn tess_vertex_buffer_mut<'a, V>(
+    tess: &'a mut Self::Tess
+  ) -> Result<&'a mut Self::Buffer, <Self as TessDriver>::Err>
+  where V: vertex::Vertex;
+
+  /// Get the internal buffer of the tessellation’s instances in read-only mode.
+  unsafe fn tess_inst_buffer<'a, V>(
+    tess: &'a Self::Tess
+  ) -> Result<&'a Self::Buffer, <Self as TessDriver>::Err>
+  where V: vertex::Vertex;
+
+  /// Get the internal buffer of the tessellation’s instances in read-write mode.
+  unsafe fn tess_inst_buffer_mut<'a, V>(
     tess: &'a mut Self::Tess
   ) -> Result<&'a mut Self::Buffer, <Self as TessDriver>::Err>
   where V: vertex::Vertex;
