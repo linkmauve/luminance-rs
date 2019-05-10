@@ -277,3 +277,13 @@ pub unsafe trait TessDriver: BufferDriver {
     inst_nb: usize
   );
 }
+
+/// Rendering pipeline implementation.
+pub unsafe trait PipelineDriver {
+  type Builder;
+
+  type Err: Display;
+
+  /// Create a new pipeline builder.
+  unsafe fn new_builder(&mut self) -> Result<Self::Builder, Self::Err>;
+}

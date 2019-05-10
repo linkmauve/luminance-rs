@@ -116,7 +116,7 @@ use core::marker::PhantomData;
 use core::ops::Deref;
 
 use crate::blending::BlendingState;
-use crate::buffer::{Buffer, RawBuffer};
+use crate::buffer::Buffer;
 use crate::context::GraphicsContext;
 use crate::face_culling::FaceCullingState;
 use crate::framebuffer::{ColorSlot, DepthSlot, Framebuffer};
@@ -171,9 +171,9 @@ impl Builder {
     }
   }
 
-  /// Create a new `Pipeline` and consume it immediately.
+  /// Create a pipeline and run it.
   ///
-  /// A dynamic rendering pipeline is responsible of rendering into a `Framebuffer`.
+  /// A dynamic rendering pipeline is responsible for rendering into a `Framebuffer`.
   ///
   /// `L` refers to the `Layering` of the underlying `Framebuffer`.
   ///
@@ -182,7 +182,7 @@ impl Builder {
   /// `CS` and `DS` are – respectively – the *color* and *depth* `Slot`(s) of the underlying
   /// `Framebuffer`.
   ///
-  /// Pipelines also have a *clear color*, used to clear the framebuffer.
+  /// Pipelines also have a *clear color*, used to clear the framebuffer to a specific color.
   pub fn pipeline<'a, L, D, CS, DS, F>(
     &self,
     framebuffer: &Framebuffer<L, D, CS, DS>,
@@ -351,10 +351,7 @@ where
 
 /// An opaque type representing a bound buffer in a `Builder`. You may want to pass such an object
 /// to a shader’s uniform’s update.
-pub struct BoundBuffer<'a, T>
-where
-  T: 'a,
-{
+pub struct BoundBuffer<'a, T> where T: 'a {
   binding: u32,
   binding_stack: &'a Rc<RefCell<BindingStack>>,
   _t: PhantomData<&'a Buffer<T>>,
