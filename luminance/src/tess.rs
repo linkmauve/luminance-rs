@@ -56,17 +56,14 @@
 
 use std::fmt;
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
-use std::os::raw::c_void;
-use std::ptr;
 
-use crate::buffer::{Buffer, BufferError, BufferSlice, BufferSliceMut};
+use crate::buffer::{BufferError, BufferSlice, BufferSliceMut};
 use crate::driver::{BufferDriver, TessDriver};
 use crate::context::GraphicsContext;
 use crate::vertex::{
   VertexBufferDesc, Vertex, VertexAttribDim, VertexAttribDesc, VertexAttribType, VertexDesc,
   VertexInstancing
 };
-use crate::vertex_restart::VertexRestart;
 
 /// Vertices can be connected via several modes.
 #[derive(Copy, Clone, Debug)]
@@ -125,7 +122,7 @@ struct VertexBuffer<D> where D: BufferDriver {
 }
 
 enum TessBuilderError<D> where D: TessDriver {
-  CannotCreate(D::Err)
+  CannotCreate(<D as TessDriver>::Err)
 }
 
 /// Build tessellations the easy way.
@@ -273,46 +270,7 @@ pub struct Tess<D> where D: TessDriver {
 impl<D> Tess<D> where D: TessDriver {
   fn render<C>(&self, ctx: &mut C, start_index: usize, vert_nb: usize, inst_nb: usize)
   where C: GraphicsContext<Driver = D> {
-    let vert_nb = vert_nb as GLsizei;
-    let inst_nb = inst_nb as GLsizei;
-
-    unsafe {
-      let mut gfx_st = ctx.state().borrow_mut();
-      gfx_st.bind_vertex_array(self.vao);
-
-      if let Some(index_state) = self.index_state.as_ref() {
-        // indexed render
-        let first = (index_state.index_type.bytes() * start_index) as *const c_void;
-
-        if let Some(restart_index) = index_state.restart_index {
-          gfx_st.set_vertex_restart(VertexRestart::On);
-          gl::PrimitiveRestartIndex(restart_index);
-        } else {
-          gfx_st.set_vertex_restart(VertexRestart::Off);
-        }
-
-        if inst_nb <= 1 {
-          gl::DrawElements(self.mode, vert_nb, index_state.index_type.to_glenum(), first);
-        } else {
-          gl::DrawElementsInstanced(
-            self.mode,
-            vert_nb,
-            index_state.index_type.to_glenum(),
-            first,
-            inst_nb,
-          );
-        }
-      } else {
-        // direct render
-        let first = start_index as GLint;
-
-        if inst_nb <= 1 {
-          gl::DrawArrays(self.mode, first, vert_nb);
-        } else {
-          gl::DrawArraysInstanced(self.mode, first, vert_nb, inst_nb);
-        }
-      }
-    }
+    ctx.driver().render_tess(self, start_index, vert_nb, inst_nb)
   }
 
   pub fn as_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>>
@@ -333,7 +291,7 @@ impl<D> Tess<D> where D: TessDriver {
     BufferSlice::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 
-  pub fn as_inst_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, d>, TessMapError<D>>
+  pub fn as_inst_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
   where V: Vertex {
     let buf = D::tess_inst_buffer_mut(&mut self.inner).map_err(TessMapError::DriverError)?;
     BufferSliceMut::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
@@ -442,7 +400,7 @@ impl<'a, D> TessSlice<'a, D> where D: TessDriver {
 }
 
 impl<'a, D> From<&'a Tess<D>> for TessSlice<'a, D> where D: TessDriver {
-  fn from(tess: &'a Tess<C>) -> Self {
+  fn from(tess: &'a Tess<D>) -> Self {
     TessSlice::one_whole(tess)
   }
 }
@@ -469,7 +427,7 @@ impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: TessDriver {
   }
 }
 
-impl<D> TessSliceIndex<Range<usize>> for Tess<D> where D: TessDriver {
+impl<D> TessSliceIndex<Range<usize>, D> for Tess<D> where D: TessDriver {
   fn slice<'a>(&self, range: Range<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, range.start, range.end)
   }

@@ -62,22 +62,16 @@
 //! `UniformBlock`. Keep in mind alignment must be respected and is a bit peculiar. TODO: explain
 //! std140 here.
 
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
-use std::os::raw::c_void;
-use std::ptr;
-use std::rc::Rc;
 use std::slice;
 
 use crate::context::GraphicsContext;
 use crate::driver::BufferDriver;
 use crate::linear::{M22, M33, M44};
-use crate::metagl::*;
-use crate::state::GraphicsState;
 
 /// Buffer errors.
 #[derive(Debug, Eq, PartialEq)]

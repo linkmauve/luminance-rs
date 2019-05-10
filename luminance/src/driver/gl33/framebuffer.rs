@@ -1,14 +1,9 @@
 use crate::driver::FramebufferDriver;
 use crate::driver::gl33::GL33;
-use crate::driver::gl33::state::GraphicsState;
 use crate::framebuffer::{ColorSlot, DepthSlot};
-use crate::texture::{
-  create_texture, opengl_target, Dim2, Dimensionable, Flat, Layerable, RawTexture, Texture, TextureError,
-};
+use crate::texture::{Dimensionable, Layerable};
 use gl;
 use gl::types::*;
-use std::fmt;
-use std::marker::PhantomData;
 
 // OpenGL representation of a framebuffer.
 pub struct RawFramebuffer {

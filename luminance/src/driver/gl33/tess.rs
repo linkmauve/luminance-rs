@@ -215,7 +215,7 @@ struct Tess {
 }
 
 impl TessDriver for GL33 {
-  type Tess = ();
+  type Tess = Tess;
 
   type TessBuilder = TessBuilder;
 
@@ -384,6 +384,55 @@ impl TessDriver for GL33 {
       }
 
       _ => Err(TessMapError::ForbiddenDeinterleavedMapping),
+    }
+  }
+
+  unsafe fn render_tess(
+    &mut self,
+    tess: &Self::Tess,
+    start_index: usize,
+    vert_nb: usize,
+    inst_nb: usize
+  ) {
+    let vert_nb = vert_nb as GLsizei;
+    let inst_nb = inst_nb as GLsizei;
+
+    unsafe {
+      let mut gfx_st = self.state.borrow_mut();
+      gfx_st.bind_vertex_array(tess.vao);
+
+      if let Some(index_state) = tess.index_state.as_ref() {
+        // indexed render
+        let first = (index_state.index_type.bytes() * start_index) as *const c_void;
+
+        if let Some(restart_index) = index_state.restart_index {
+          gfx_st.set_vertex_restart(VertexRestart::On);
+          gl::PrimitiveRestartIndex(restart_index);
+        } else {
+          gfx_st.set_vertex_restart(VertexRestart::Off);
+        }
+
+        if inst_nb <= 1 {
+          gl::DrawElements(tess.mode, vert_nb, index_state.index_type.to_glenum(), first);
+        } else {
+          gl::DrawElementsInstanced(
+            tess.mode,
+            vert_nb,
+            index_state.index_type.to_glenum(),
+            first,
+            inst_nb,
+          );
+        }
+      } else {
+        // direct render
+        let first = start_index as GLint;
+
+        if inst_nb <= 1 {
+          gl::DrawArrays(tess.mode, first, vert_nb);
+        } else {
+          gl::DrawArraysInstanced(tess.mode, first, vert_nb, inst_nb);
+        }
+      }
     }
   }
 }

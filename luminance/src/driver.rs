@@ -267,4 +267,13 @@ pub unsafe trait TessDriver: BufferDriver {
     tess: &'a mut Self::Tess
   ) -> Result<&'a mut Self::Buffer, <Self as TessDriver>::Err>
   where V: vertex::Vertex;
+
+  /// Render a tessellation.
+  unsafe fn render_tess(
+    &mut self,
+    tess: &Self::Tess,
+    start_index: usize,
+    vert_nb: usize,
+    inst_nb: usize
+  );
 }
