@@ -52,7 +52,7 @@ unsafe impl PipelineDriver for GL33 {
 
   type Err = PipelineError;
 
-  unsafe fn new_builder(&mut self) -> Result<Self::Builder, Self::Err> {
+  unsafe fn new_builder(&mut self) -> Result<Self::Builder, <Self as PipelineDriver>::Err> {
     Ok(Builder {
       binding_stack: Rc::new(RefCell::new(BindingStack::new(gfx_state))),
     })

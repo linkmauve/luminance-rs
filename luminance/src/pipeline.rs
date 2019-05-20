@@ -188,13 +188,11 @@ impl Builder {
     framebuffer: &Framebuffer<L, D, CS, DS>,
     clear_color: [f32; 4],
     f: F,
-  ) where
-    L: Layerable,
-    D: Dimensionable,
-    CS: ColorSlot<L, D>,
-    DS: DepthSlot<L, D>,
-    F: FnOnce(Pipeline, ShadingGate),
-  {
+  ) where L: Layerable,
+          D: Dimensionable,
+          CS: ColorSlot<L, D>,
+          DS: DepthSlot<L, D>,
+          F: FnOnce(Pipeline, ShadingGate) {
     let binding_stack = &self.binding_stack;
 
     unsafe {
@@ -231,11 +229,9 @@ impl<'a> Pipeline<'a> {
     &'a self,
     texture: &'a Texture<L, D, P>,
   ) -> BoundTexture<'a, L, D, P::SamplerType>
-  where
-    L: 'a + Layerable,
-    D: 'a + Dimensionable,
-    P: 'a + Pixel,
-  {
+  where L: 'a + Layerable,
+        D: 'a + Dimensionable,
+        P: 'a + Pixel {
     let mut bstack = self.binding_stack.borrow_mut();
 
     let unit = bstack.free_texture_units.pop().unwrap_or_else(|| {
@@ -258,9 +254,7 @@ impl<'a> Pipeline<'a> {
   ///
   /// The buffer remains bound as long as the return value lives.
   pub fn bind_buffer<T>(&'a self, buffer: &'a T) -> BoundBuffer<'a, T>
-  where
-    T: Deref<Target = RawBuffer>,
-  {
+  where T: Deref<Target = RawBuffer> {
     let mut bstack = self.binding_stack.borrow_mut();
 
     let binding = bstack.free_buffer_bindings.pop().unwrap_or_else(|| {
@@ -294,11 +288,9 @@ where
 }
 
 impl<'a, L, D, S> BoundTexture<'a, L, D, S>
-where
-  L: 'a + Layerable,
-  D: 'a + Dimensionable,
-  S: 'a + SamplerType,
-{
+where L: 'a + Layerable,
+      D: 'a + Dimensionable,
+      S: 'a + SamplerType {
   fn new(binding_stack: &'a Rc<RefCell<BindingStack>>, unit: u32) -> Self {
     BoundTexture {
       unit,
