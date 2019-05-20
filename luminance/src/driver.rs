@@ -279,17 +279,21 @@ pub unsafe trait TessDriver: BufferDriver {
 }
 
 /// Rendering pipeline implementation.
-pub unsafe trait PipelineDriver: FramebufferDriver {
+pub unsafe trait PipelineDriver: BufferDriver + FramebufferDriver + TextureDriver {
   type Builder;
 
   type Pipeline;
 
   type ShadingGate;
 
+  type BoundTexture;
+
+  type BoundBuffer;
+
   type Err: Display;
 
   /// Create a new pipeline builder.
-  unsafe fn new_builder(&mut self) -> Result<Self::Builder, Self::Err>;
+  unsafe fn new_builder(&mut self) -> Result<Self::Builder, <Self as PipelineDriver>::Err>;
 
   /// Pre-run a pipeline.
   unsafe fn run_pipeline<F>(
@@ -300,4 +304,15 @@ pub unsafe trait PipelineDriver: FramebufferDriver {
     clear_color: [f32; 4]
   ) where F: FnOnce(Self::Pipeline, Self::ShadingGate);
 
+  /// Bind a texture and return a bound texture.
+  unsafe fn bind_texture(
+    pipeline: &mut Self::Pipeline,
+    texture: &Self::Texture
+  ) -> Result<Self::BoundTexture, <Self as PipelineDriver>::Err>;
+
+  /// Bind a buffer and return a bound buffer.
+  unsafe fn bind_buffer(
+    pipeline: &mut Self::Pipeline,
+    buffer: &Self::Buffer
+  ) -> Result<Self::BoundBuffer, <Self as PipelineDriver>::Err>;
 }
