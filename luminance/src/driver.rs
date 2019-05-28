@@ -12,16 +12,16 @@ use crate::blending;
 use crate::depth_test;
 use crate::face_culling;
 //use crate::framebuffer;
-//use crate::pixel;
+use crate::pixel;
 //use crate::tess;
-////use crate::texture;
+use crate::texture;
 //use crate::vertex;
 //use crate::vertex_restart;
 
 /// Main driver, providing all graphics-related features.
-pub trait Driver: BufferDriver + RenderStateDriver /* + FramebufferDriver + TextureDriver + TessDriver */ {}
+pub trait Driver: BufferDriver + RenderStateDriver + TextureDriver /* + FramebufferDriver + TessDriver */ {}
 
-impl<T> Driver for T where T: BufferDriver + RenderStateDriver /* + FramebufferDriver + TextureDriver + TessDriver */ {}
+impl<T> Driver for T where T: BufferDriver + RenderStateDriver + TextureDriver + /* FramebufferDriver + TessDriver */ {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
@@ -89,6 +89,60 @@ pub unsafe trait RenderStateDriver {
   unsafe fn set_face_culling_mode(&mut self, mode: face_culling::FaceCullingMode);
 }
 
+/// Texture implementation.
+pub unsafe trait TextureDriver {
+  /// Representation of a graphics texture by this driver.
+  type Texture;
+
+  /// Error that might occur with textures.
+  type Err;
+
+  /// Create a new texture.
+  unsafe fn new_texture<L, D, P>(
+    &mut self,
+    size: D::Size,
+    mipmaps: usize,
+    sampler: &texture::Sampler
+  ) -> Result<Self::Texture, Self::Err>
+  where L: texture::Layerable,
+        D: texture::Dimensionable,
+        P: pixel::Pixel;
+
+  /// Drop a texture.
+  unsafe fn drop_texture(texture: &mut Self::Texture);
+
+  /// Upload texels to a part of a texture.
+  unsafe fn upload_part<L, D, P>(
+    texture: &mut Self::Texture,
+    gen_mipmaps: bool,
+    offset: D::Offset,
+    size: D::Size,
+    texels: &[P::Encoding]
+  ) -> Result<(), Self::Err>
+  where L: texture::Layerable,
+        D: texture::Dimensionable,
+        P: pixel::Pixel;
+
+  /// Upload raw texels to a part of a texture.
+  unsafe fn upload_part_raw<L, D, P>(
+    texture: &mut Self::Texture,
+    gen_mipmaps: bool,
+    offset: D::Offset,
+    size: D::Size,
+    texels: &[P::RawEncoding]
+  ) -> Result<(), Self::Err>
+  where L: texture::Layerable,
+        D: texture::Dimensionable,
+        P: pixel::Pixel;
+
+  /// Get the raw texels associated with this texture.
+  unsafe fn get_raw_texels<P>(
+    texture: &Self::Texture
+  ) -> Result<Vec<P::RawEncoding>, Self::Err>
+  where P: pixel::Pixel,
+        P::RawEncoding: Copy;
+}
+
 // /// Framebuffer implementation.
 // pub unsafe trait FramebufferDriver {
 //   /// Representation of a graphics framebuffer by this driver.
@@ -137,64 +191,7 @@ pub unsafe trait RenderStateDriver {
 //
 //   unsafe fn clear_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
 // }
-//
-// /// Texture implementation.
-// pub unsafe trait TextureDriver {
-//   /// Representation of a graphics texture by this driver.
-//   type Texture;
-//
-//   /// Error that might occur with textures.
-//   type Err;
-//
-//   /// Create a new texture.
-//   unsafe fn new_texture<L, D, P>(
-//     &mut self,
-//     size: D::Size,
-//     mipmaps: usize,
-//     sampler: &texture::Sampler
-//   ) -> Result<Self::Texture, Self::Err>
-//   where L: texture::Layerable,
-//         D: texture::Dimensionable,
-//         P: pixel::Pixel;
-//
-//   /// Drop a texture.
-//   unsafe fn drop_texture(&mut self, texture: &mut Self::Texture);
-//
-//   /// Upload texels to a part of a texture.
-//   unsafe fn upload_part<L, D, P>(
-//     &mut self,
-//     texture: &Self::Texture,
-//     gen_mipmaps: bool,
-//     offset: D::Offset,
-//     size: D::Size,
-//     texels: &[P::Encoding]
-//   ) -> Result<(), Self::Err>
-//   where L: texture::Layerable,
-//         D: texture::Dimensionable,
-//         P: pixel::Pixel;
-//
-//   /// Upload raw texels to a part of a texture.
-//   unsafe fn upload_part_raw<L, D, P>(
-//     &mut self,
-//     texture: &Self::Texture,
-//     gen_mipmaps: bool,
-//     offset: D::Offset,
-//     size: D::Size,
-//     texels: &[P::RawEncoding]
-//   ) -> Result<(), Self::Err>
-//   where L: texture::Layerable,
-//         D: texture::Dimensionable,
-//         P: pixel::Pixel;
-//
-//   /// Get the raw texels associated with this texture.
-//   unsafe fn get_raw_texels<P>(
-//     &mut self,
-//     texture: &Self::Texture
-//   ) -> Result<Vec<P::RawEncoding>, Self::Err>
-//   where P: pixel::Pixel,
-//         P::RawEncoding: Copy;
-// }
-//
+
 // /// Tessellation implementation.
 // pub unsafe trait TessDriver: BufferDriver {
 //   /// Representation of a graphics tessellation by this driver.

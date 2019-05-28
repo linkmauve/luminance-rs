@@ -8,6 +8,7 @@ use crate::texture::{
 use gl;
 use gl::types::*;
 use std::cell::RefCell;
+use std::fmt;
 use std::mem::uninitialized;
 use std::os::raw::c_void;
 use std::ptr;
@@ -44,6 +45,16 @@ pub enum TextureError {
   TextureStorageCreationFailed(String),
 }
 
+impl fmt::Display for TextureError {
+  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    match *self {
+      TextureError::TextureStorageCreationFailed(ref e) => {
+        write!(f, "texture storage creation failed: {}", e)
+      }
+    }
+  }
+}
+
 unsafe impl TextureDriver for GL33 {
   type Texture = RawTexture;
 
@@ -69,13 +80,12 @@ unsafe impl TextureDriver for GL33 {
     Ok(RawTexture::new(self.state.clone(), texture, target))
   }
 
-  unsafe fn drop_texture(&mut self, texture: &mut Self::Texture) {
+  unsafe fn drop_texture(texture: &mut Self::Texture) {
     gl::DeleteTextures(1, &texture.handle)
   }
 
   unsafe fn upload_part<L, D, P>(
-    &mut self,
-    texture: &Self::Texture,
+    texture: &mut Self::Texture,
     gen_mipmaps: bool,
     offset: D::Offset,
     size: D::Size,
@@ -84,7 +94,7 @@ unsafe impl TextureDriver for GL33 {
   where L: Layerable,
         D: Dimensionable,
         P: Pixel {
-    let mut gfx_state = self.state.borrow_mut();
+    let mut gfx_state = texture.state.borrow_mut();
 
     gfx_state.bind_texture(texture.target, texture.handle);
 
@@ -100,8 +110,7 @@ unsafe impl TextureDriver for GL33 {
   }
 
   unsafe fn upload_part_raw<L, D, P>(
-    &mut self,
-    texture: &Self::Texture,
+    texture: &mut Self::Texture,
     gen_mipmaps: bool,
     offset: D::Offset,
     size: D::Size,
@@ -110,7 +119,7 @@ unsafe impl TextureDriver for GL33 {
   where L: Layerable,
         D: Dimensionable,
         P: Pixel {
-    let mut gfx_state = self.state.borrow_mut();
+    let mut gfx_state = texture.state.borrow_mut();
 
     gfx_state.bind_texture(texture.target, texture.handle);
 
@@ -126,7 +135,6 @@ unsafe impl TextureDriver for GL33 {
   }
 
   unsafe fn get_raw_texels<P>(
-    &mut self,
     texture: &Self::Texture
   ) -> Result<Vec<P::RawEncoding>, Self::Err>
   where P: Pixel,
@@ -138,7 +146,7 @@ unsafe impl TextureDriver for GL33 {
     let mut w = 0;
     let mut h = 0;
 
-    let mut gfx_state = self.state.borrow_mut();
+    let mut gfx_state = texture.state.borrow_mut();
     gfx_state.bind_texture(texture.target, texture.handle);
 
     // retrieve the size of the texture (w and h)
