@@ -1,20 +1,71 @@
-use crate::driver::FramebufferDriver;
-use crate::driver::gl33::GL33;
-use crate::framebuffer::{ColorSlot, DepthSlot};
-use crate::texture::{Dimensionable, Layerable};
 use gl;
 use gl::types::*;
+use std::cell::RefCell;
+use std::fmt;
+use std::rc::Rc;
+
+use crate::driver::FramebufferDriver;
+use crate::driver::gl33::GL33;
+use crate::driver::gl33::state::GraphicsState;
+use crate::framebuffer::{ColorSlot, DepthSlot};
+use crate::texture::{Dimensionable, Layerable};
+
+/// Framebuffer error.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FramebufferError {
+  TextureError(TextureError),
+  Incomplete(IncompleteReason),
+}
+
+impl fmt::Display for FramebufferError {
+  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    match *self {
+      FramebufferError::TextureError(ref e) => write!(f, "framebuffer texture error: {}", e),
+
+      FramebufferError::Incomplete(ref e) => write!(f, "incomplete framebuffer: {}", e),
+    }
+  }
+}
+
+/// Reason a framebuffer is incomplete.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IncompleteReason {
+  Undefined,
+  IncompleteAttachment,
+  MissingAttachment,
+  IncompleteDrawBuffer,
+  IncompleteReadBuffer,
+  Unsupported,
+  IncompleteMultisample,
+  IncompleteLayerTargets,
+}
+
+impl fmt::Display for IncompleteReason {
+  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    match *self {
+      IncompleteReason::Undefined => write!(f, "incomplete reason"),
+      IncompleteReason::IncompleteAttachment => write!(f, "incomplete attachment"),
+      IncompleteReason::MissingAttachment => write!(f, "missing attachment"),
+      IncompleteReason::IncompleteDrawBuffer => write!(f, "incomplete draw buffer"),
+      IncompleteReason::IncompleteReadBuffer => write!(f, "incomplete read buffer"),
+      IncompleteReason::Unsupported => write!(f, "unsupported"),
+      IncompleteReason::IncompleteMultisample => write!(f, "incomplete multisample"),
+      IncompleteReason::IncompleteLayerTargets => write!(f, "incomplete layer targets"),
+    }
+  }
+}
 
 // OpenGL representation of a framebuffer.
 pub struct RawFramebuffer {
-    handle: GLuint,
-    renderbuffer: Option<GLuint>
+  handle: GLuint,
+  renderbuffer: Option<GLuint>,
+  state: Rc<RefCell<GraphicsState>>,
 }
 
 unsafe impl FramebufferDriver for GL33 {
   type Framebuffer = RawFramebuffer;
 
-  type Err = (); // FIXME
+  type Err = FramebufferError;
 
   unsafe fn back_buffer(&mut self, _: [u32; 2]) -> Result<Self::Framebuffer, Self::Err> {
     Ok(RawFramebuffer {
@@ -36,9 +87,9 @@ unsafe impl FramebufferDriver for GL33 {
     unimplemented!()
   }
 
-  unsafe fn drop_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer) {
-    if let Some(renderbuffer) = framebuffer.renderbuffer {
-      gl::DeleteRenderbuffers(1, &renderbuffer);
+  unsafe fn drop_framebuffer(framebuffer: &mut Self::Framebuffer) {
+    if let Some(ref renderbuffer) = framebuffer.renderbuffer {
+      gl::DeleteRenderbuffers(1, renderbuffer);
     }
 
     if framebuffer.handle != 0 {
@@ -46,13 +97,12 @@ unsafe impl FramebufferDriver for GL33 {
     }
   }
 
-  unsafe fn use_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer) {
-    self.state.borrow_mut().bind_draw_framebuffer(framebuffer.handle);
+  unsafe fn use_framebuffer(framebuffer: &mut Self::Framebuffer) {
+    framebuffer.state.borrow_mut().bind_draw_framebuffer(framebuffer.handle);
   }
 
   unsafe fn set_framebuffer_viewport(
-    &mut self,
-    framebuffer: &mut Self::Framebuffer,
+    _: &mut Self::Framebuffer,
     x: u32,
     y: u32,
     width: u32,
@@ -62,8 +112,7 @@ unsafe impl FramebufferDriver for GL33 {
   }
 
   unsafe fn set_framebuffer_clear_color(
-    &mut self,
-    framebuffer: &mut Self::Framebuffer,
+    _: &mut Self::Framebuffer,
     rgba: [f32; 4]
   ) {
     gl::ClearColor(
@@ -74,7 +123,7 @@ unsafe impl FramebufferDriver for GL33 {
     );
   }
 
-  unsafe fn clear_framebuffer(&mut self, _: &mut Self::Framebuffer) {
+  unsafe fn clear_framebuffer(_: &mut Self::Framebuffer) {
     gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
   }
 }

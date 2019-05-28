@@ -28,69 +28,15 @@
 //!
 //! Color buffers are abstracted by `ColorSlot` and the depth buffer by `DepthSlot`.
 
-#[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
 use std::marker::PhantomData;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use core::fmt;
-#[cfg(not(feature = "std"))]
-use core::marker::PhantomData;
-
 use crate::context::GraphicsContext;
-use crate::metagl::*;
+use crate::driver::FramebufferDriver;
 use crate::pixel::{ColorPixel, DepthPixel, PixelFormat, RenderablePixel};
 use crate::texture::{
   create_texture, opengl_target, Dim2, Dimensionable, Flat, Layerable, RawTexture, Texture, TextureError,
 };
-
-/// Framebuffer error.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FramebufferError {
-  TextureError(TextureError),
-  Incomplete(IncompleteReason),
-}
-
-impl fmt::Display for FramebufferError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-    match *self {
-      FramebufferError::TextureError(ref e) => write!(f, "framebuffer texture error: {}", e),
-
-      FramebufferError::Incomplete(ref e) => write!(f, "incomplete framebuffer: {}", e),
-    }
-  }
-}
-
-/// Reason a framebuffer is incomplete.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IncompleteReason {
-  Undefined,
-  IncompleteAttachment,
-  MissingAttachment,
-  IncompleteDrawBuffer,
-  IncompleteReadBuffer,
-  Unsupported,
-  IncompleteMultisample,
-  IncompleteLayerTargets,
-}
-
-impl fmt::Display for IncompleteReason {
-  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-    match *self {
-      IncompleteReason::Undefined => write!(f, "incomplete reason"),
-      IncompleteReason::IncompleteAttachment => write!(f, "incomplete attachment"),
-      IncompleteReason::MissingAttachment => write!(f, "missing attachment"),
-      IncompleteReason::IncompleteDrawBuffer => write!(f, "incomplete draw buffer"),
-      IncompleteReason::IncompleteReadBuffer => write!(f, "incomplete read buffer"),
-      IncompleteReason::Unsupported => write!(f, "unsupported"),
-      IncompleteReason::IncompleteMultisample => write!(f, "incomplete multisample"),
-      IncompleteReason::IncompleteLayerTargets => write!(f, "incomplete layer targets"),
-    }
-  }
-}
 
 /// Framebuffer with static layering, dimension, access and slots formats.
 ///
@@ -107,16 +53,14 @@ impl fmt::Display for IncompleteReason {
 /// you use several color slots, you’ll be performing what’s called *MRT* (*M* ultiple *R* ender
 /// *T* argets), enabling to render to several textures at once.
 #[derive(Debug)]
-pub struct Framebuffer<L, D, CS, DS>
-where
-  L: Layerable,
-  D: Dimensionable,
-  D::Size: Copy,
-  CS: ColorSlot<L, D>,
-  DS: DepthSlot<L, D>,
-{
-  handle: GLuint,
-  renderbuffer: Option<GLuint>,
+pub struct Framebuffer<X, L, D, CS, DS>
+where X: FramebufferDriver,
+      L: Layerable,
+      D: Dimensionable,
+      D::Size: Copy,
+      CS: ColorSlot<L, D>,
+      DS: DepthSlot<L, D>, {
+  raw: X::Framebuffer,
   w: u32,
   h: u32,
   color_slot: CS::ColorTextures,
@@ -125,43 +69,25 @@ where
   _d: PhantomData<D>,
 }
 
-impl Framebuffer<Flat, Dim2, (), ()> {
-  /// Get the back buffer with the given dimension.
-  pub fn back_buffer(size: <Dim2 as Dimensionable>::Size) -> Self {
-    Framebuffer {
-      handle: 0,
-      renderbuffer: None,
-      w: size[0],
-      h: size[1],
-      color_slot: (),
-      depth_slot: (),
-      _l: PhantomData,
-      _d: PhantomData,
-    }
-  }
-}
-
-impl<L, D, CS, DS> Drop for Framebuffer<L, D, CS, DS>
-where
-  L: Layerable,
-  D: Dimensionable,
-  D::Size: Copy,
-  CS: ColorSlot<L, D>,
-  DS: DepthSlot<L, D>,
-{
+impl<X, L, D, CS, DS> Drop for Framebuffer<X, L, D, CS, DS>
+where X: FramebufferDriver,
+      L: Layerable,
+      D: Dimensionable,
+      D::Size: Copy,
+      CS: ColorSlot<L, D>,
+      DS: DepthSlot<L, D>, {
   fn drop(&mut self) {
-    self.destroy();
+    X::drop_framebuffer(&mut self.raw)
   }
 }
 
 impl<L, D, CS, DS> Framebuffer<L, D, CS, DS>
-where
-  L: Layerable,
-  D: Dimensionable,
-  D::Size: Copy,
-  CS: ColorSlot<L, D>,
-  DS: DepthSlot<L, D>,
-{
+where X: FramebufferDriver,
+      L: Layerable,
+      D: Dimensionable,
+      D::Size: Copy,
+      CS: ColorSlot<L, D>,
+      DS: DepthSlot<L, D>, {
   /// Create a new farmebuffer.
   ///
   /// You’re always handed at least the base level of the texture. If you require any *additional*

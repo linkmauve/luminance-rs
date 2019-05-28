@@ -11,7 +11,7 @@ use std::fmt::Display;
 use crate::blending;
 use crate::depth_test;
 use crate::face_culling;
-//use crate::framebuffer;
+use crate::framebuffer;
 use crate::pixel;
 //use crate::tess;
 use crate::texture;
@@ -19,9 +19,9 @@ use crate::texture;
 //use crate::vertex_restart;
 
 /// Main driver, providing all graphics-related features.
-pub trait Driver: BufferDriver + RenderStateDriver + TextureDriver /* + FramebufferDriver + TessDriver */ {}
+pub trait Driver: BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver /* + TessDriver */ {}
 
-impl<T> Driver for T where T: BufferDriver + RenderStateDriver + TextureDriver + /* FramebufferDriver + TessDriver */ {}
+impl<T> Driver for T where T: BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver + /* TessDriver */ {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
@@ -143,54 +143,53 @@ pub unsafe trait TextureDriver {
         P::RawEncoding: Copy;
 }
 
-// /// Framebuffer implementation.
-// pub unsafe trait FramebufferDriver {
-//   /// Representation of a graphics framebuffer by this driver.
-//   type Framebuffer;
-//
-//   /// Error that might occur with framebuffers.
-//   type Err;
-//
-//   /// Get the back buffer, if any available.
-//   unsafe fn back_buffer(&mut self, size: [u32; 2]) -> Result<Self::Framebuffer, Self::Err>;
-//
-//   /// Create a framebuffer.
-//   unsafe fn new_framebuffer<L, D, CS, DS>(
-//     &mut self,
-//     size: [u32; 2],
-//     mipmaps: usize
-//   ) -> Result<Self::Framebuffer, Self::Err>
-//   where CS: framebuffer::ColorSlot<L, D>,
-//         DS: framebuffer::DepthSlot<L, D>,
-//         L: texture::Layerable,
-//         D: texture::Dimensionable,
-//         D::Size: Copy;
-//
-//   /// Drop a framebuffer.
-//   unsafe fn drop_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
-//
-//   /// Use a framebuffer.
-//   unsafe fn use_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
-//
-//   /// Set the viewport for incoming calls in this framebuffer.
-//   unsafe fn set_framebuffer_viewport(
-//     &mut self,
-//     framebuffer: &mut Self::Framebuffer,
-//     x: u32,
-//     y: u32,
-//     width: u32,
-//     height: u32
-//   );
-//
-//   /// Clear color to use with this framebuffer when clearing.
-//   unsafe fn set_framebuffer_clear_color(
-//     &mut self,
-//     framebuffer: &mut Self::Framebuffer,
-//     rgba: [f32; 4]
-//   );
-//
-//   unsafe fn clear_framebuffer(&mut self, framebuffer: &mut Self::Framebuffer);
-// }
+/// Framebuffer implementation.
+pub unsafe trait FramebufferDriver {
+  /// Representation of a graphics framebuffer by this driver.
+  type Framebuffer;
+
+  /// Error that might occur with framebuffers.
+  type Err;
+
+  /// Get the back buffer, if any available.
+  unsafe fn back_buffer(&mut self, size: [u32; 2]) -> Result<Self::Framebuffer, Self::Err>;
+
+  /// Create a framebuffer.
+  unsafe fn new_framebuffer<L, D, CS, DS>(
+    &mut self,
+    size: [u32; 2],
+    mipmaps: usize
+  ) -> Result<Self::Framebuffer, Self::Err>
+  where CS: framebuffer::ColorSlot<L, D>,
+        DS: framebuffer::DepthSlot<L, D>,
+        L: texture::Layerable,
+        D: texture::Dimensionable,
+        D::Size: Copy;
+
+  /// Drop a framebuffer.
+  unsafe fn drop_framebuffer(framebuffer: &mut Self::Framebuffer);
+
+  /// Use a framebuffer.
+  unsafe fn use_framebuffer(framebuffer: &mut Self::Framebuffer);
+
+  /// Set the viewport for incoming calls in this framebuffer.
+  unsafe fn set_framebuffer_viewport(
+    framebuffer: &mut Self::Framebuffer,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32
+  );
+
+  /// Clear color to use with this framebuffer when clearing.
+  unsafe fn set_framebuffer_clear_color(
+    framebuffer: &mut Self::Framebuffer,
+    rgba: [f32; 4]
+  );
+
+  /// Clear a framebuffer.
+  unsafe fn clear_framebuffer(framebuffer: &mut Self::Framebuffer);
+}
 
 // /// Tessellation implementation.
 // pub unsafe trait TessDriver: BufferDriver {
