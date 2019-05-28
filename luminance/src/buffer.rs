@@ -130,10 +130,12 @@ pub struct Buffer<T, D> where D: BufferDriver {
 impl<T, D> Buffer<T, D> where D: BufferDriver {
   /// Create a new `Buffer` with a given number of elements.
   pub fn new<C>(ctx: &mut C, len: usize) -> Result<Self, BufferError<D>> where C: GraphicsContext<Driver = D> {
-    ctx.driver()
-      .new_buffer::<T>(len)
-      .map(|buf| Buffer { buf, _t: PhantomData })
-      .map_err(BufferError::DriverError)
+    unsafe {
+      ctx.driver()
+        .new_buffer::<T>(len)
+        .map(|buf| Buffer { buf, _t: PhantomData })
+        .map_err(BufferError::DriverError)
+    }
   }
 
   /// Create a buffer out of a slice.
@@ -143,17 +145,19 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
 
   /// Create a buffer out of a slice (driver version).
   pub(crate) fn from_slice_driver(driver: &mut D, slice: &[T]) -> Result<Self, BufferError<D>> {
-    driver
-      .from_slice::<T>(slice)
-      .map(|buf| Buffer { buf, _t: PhantomData })
-      .map_err(BufferError::DriverError)
+    unsafe {
+      driver
+        .from_slice::<T>(slice)
+        .map(|buf| Buffer { buf, _t: PhantomData })
+        .map_err(BufferError::DriverError)
+    }
   }
 
   /// Retrieve an element from the `Buffer`.
   ///
   /// Checks boundaries.
   pub fn at(&self, i: usize) -> Option<T> where T: Copy {
-    if i >= D::len(&self.buf) {
+    if i >= unsafe { D::len(&self.buf) } {
       return None;
     }
 
@@ -169,8 +173,8 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   ///
   /// Checks boundaries.
   pub fn set(&mut self, i: usize, x: T) -> Result<(), BufferError<D>> where T: Copy {
-    if i >= D::len(&self.buf) {
-      return Err(BufferError::Overflow(i, D::len(&self.buf)));
+    if i >= unsafe { D::len(&self.buf) } {
+      return Err(BufferError::Overflow(i, unsafe { D::len(&self.buf) }));
     }
 
     unsafe { D::set(&mut self.buf, i, x).map_err(BufferError::DriverError) }
@@ -183,35 +187,37 @@ impl<T, D> Buffer<T, D> where D: BufferDriver {
   ///
   /// This function won’t write anything on any error.
   pub fn write_whole(&mut self, values: &[T]) -> Result<(), BufferError<D>> {
-    let buf_len = D::len(&self.buf);
+    let buf_len = unsafe { D::len(&self.buf) };
     let len = values.len();
     let in_bytes = len * mem::size_of::<T>();
 
     // generate warning and recompute the proper number of bytes to copy
-    let real_bytes = match in_bytes.cmp(&D::bytes(&self.buf)) {
-      Ordering::Less => return Err(BufferError::TooFewValues(len, buf_len)),
-      Ordering::Greater => return Err(BufferError::TooManyValues(len, buf_len)),
-      _ => in_bytes,
-    };
+    unsafe {
+      let real_bytes = match in_bytes.cmp(&D::bytes(&self.buf)) {
+        Ordering::Less => return Err(BufferError::TooFewValues(len, buf_len)),
+        Ordering::Greater => return Err(BufferError::TooManyValues(len, buf_len)),
+        _ => in_bytes,
+      };
 
-    unsafe { D::write_whole(&mut self.buf, values, real_bytes).map_err(BufferError::DriverError) }
+      D::write_whole(&mut self.buf, values, real_bytes).map_err(BufferError::DriverError)
+    }
   }
 
   /// Fill the `Buffer` with a single value.
-  pub fn clear(&self, x: T) -> Result<(), BufferError<D>> where T: Copy {
-    self.write_whole(&vec![x; D::len(&self.buf)])
+  pub fn clear(&mut self, x: T) -> Result<(), BufferError<D>> where T: Copy {
+    self.write_whole(&vec![x; unsafe { D::len(&self.buf) }])
   }
 
   /// Fill the whole buffer with an array.
-  pub fn fill(&self, values: &[T]) -> Result<(), BufferError<D>> {
+  pub fn fill(&mut self, values: &[T]) -> Result<(), BufferError<D>> {
     self.write_whole(values)
   }
 
   /// Convert a buffer to its driver representation.
   ///
   /// Becareful: once you have called this function, it is not possible to go back to a `Buffer<_>`.
-  pub(crate) fn to_driver_buf(self) -> D::Buffer {
-    let buf = self.buf;
+  pub(crate) fn to_driver_buf(mut self) -> D::Buffer {
+    let buf = mem::replace(&mut self.buf, unsafe { mem::uninitialized() });
 
     // forget self so that we don’t call drop on it after the function has returned
     mem::forget(self);
@@ -250,12 +256,6 @@ impl<T, D> Drop for Buffer<T, D> where D: BufferDriver {
   }
 }
 
-impl<T, D> From<Buffer<T, D>> for D::Buffer where D: BufferDriver {
-  fn from(buffer: Buffer<T, D>) -> Self {
-    buffer.to_driver_buf()
-  }
-}
-
 /// A buffer slice mapped into GPU memory.
 pub struct BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   // Borrowed raw buffer.
@@ -266,7 +266,7 @@ pub struct BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
 
 impl<'a, T, D> BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   /// Create a buffer slice from a driver’s buffer representation.
-  pub(crate) fn from_driver_buf_ref(buf: &D::Buffer) -> Result<Self, BufferError<D>> {
+  pub(crate) fn from_driver_buf_ref(buf: &'a D::Buffer) -> Result<Self, BufferError<D>> {
     let ptr = unsafe { D::as_slice::<T>(buf).map_err(BufferError::DriverError)? };
     Ok(BufferSlice { buf, ptr })
   }
@@ -305,7 +305,7 @@ pub struct BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
 
 impl<'a, T, D> BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   /// Create a buffer slice from a driver’s buffer representation.
-  pub(crate) fn from_driver_buf_ref(buf: &mut D::Buffer) -> Result<Self, BufferError<D>> {
+  pub(crate) fn from_driver_buf_ref(buf: &'a mut D::Buffer) -> Result<Self, BufferError<D>> {
     let ptr = unsafe { D::as_slice_mut::<T>(buf).map_err(BufferError::DriverError)? };
     Ok(BufferSliceMut { buf, ptr })
   }

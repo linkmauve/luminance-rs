@@ -1,5 +1,7 @@
 //! OpenGL graphics state.
 
+use gl;
+use gl::types::*;
 use std::cell::RefCell;
 use std::fmt;
 use std::marker::PhantomData;
@@ -7,7 +9,6 @@ use std::marker::PhantomData;
 use crate::blending::{BlendingState, Equation, Factor};
 use crate::depth_test::DepthTest;
 use crate::face_culling::{FaceCullingMode, FaceCullingOrder, FaceCullingState};
-use crate::metagl::*;
 use crate::vertex_restart::VertexRestart;
 
 // TLS synchronization barrier for `GraphicsState`.

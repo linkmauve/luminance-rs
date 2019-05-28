@@ -1,23 +1,14 @@
 //! Graphics state.
 
-#[cfg(feature = "std")]
+use gl;
+use gl::types::*;
 use std::cell::RefCell;
-#[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
 use std::marker::PhantomData;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use core::fmt;
-#[cfg(not(feature = "std"))]
-use core::marker::PhantomData;
 
 use crate::blending::{BlendingState, Equation, Factor};
 use crate::depth_test::DepthTest;
 use crate::face_culling::{FaceCullingMode, FaceCullingOrder, FaceCullingState};
-use crate::metagl::*;
 use crate::vertex_restart::VertexRestart;
 
 // TLS synchronization barrier for `GraphicsState`.

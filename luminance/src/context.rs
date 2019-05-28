@@ -21,19 +21,11 @@
 //! dynamic branches in the implementation and reduce the number of required safety
 //! checks – enforced at compile time instead.
 
-#[cfg(feature = "std")]
 use std::cell::RefCell;
-#[cfg(feature = "std")]
 use std::rc::Rc;
 
-#[cfg(not(feature = "std"))]
-use alloc::rc::Rc;
-#[cfg(not(feature = "std"))]
-use core::cell::RefCell;
-
 use crate::driver::Driver;
-use crate::pipeline::Builder;
-use crate::state::GraphicsState;
+//use crate::pipeline::Builder;
 
 /// Class of graphics context.
 ///
@@ -46,17 +38,11 @@ pub unsafe trait GraphicsContext {
   /// Get access to the graphics driver.
   fn driver(&mut self) -> &mut Self::Driver;
 
-  /// Get access to the graphics state of this context.
-  ///
-  /// This must return a `Rc<RefCell<GraphicsState>>` because the state will be shared by OpenGL
-  /// objects to ensure consistency with its state.
-  fn state(&self) -> &Rc<RefCell<GraphicsState>>;
-
-  /// Create a new pipeline builder.
-  ///
-  /// A pipeline builder is the only way to create new pipelines and issue draws. Feel free to dig
-  /// in the documentation of `Builder` for further details.
-  fn pipeline_builder(&self) -> Builder {
-    Builder::new(self.state().clone())
-  }
+  // /// Create a new pipeline builder.
+  // ///
+  // /// A pipeline builder is the only way to create new pipelines and issue draws. Feel free to dig
+  // /// in the documentation of `Builder` for further details.
+  // fn pipeline_builder(&self) -> Builder {
+  //   Builder::new(self.state().clone())
+  // }
 }

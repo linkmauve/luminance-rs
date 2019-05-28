@@ -4,6 +4,7 @@ use crate::driver::gl33::state::GraphicsState;
 use gl;
 use gl::types::*;
 use std::cell::RefCell;
+use std::fmt;
 use std::mem;
 use std::os::raw::c_void;
 use std::ptr;
@@ -14,7 +15,14 @@ pub enum BufferDriverError {
   MapFailed
 }
 
-#[derive(Debug)]
+impl fmt::Display for BufferDriverError {
+  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    match *self {
+      BufferDriverError::MapFailed => f.write_str("buffer mapping failed"),
+    }
+  }
+}
+
 pub struct RawBuffer {
   handle: GLuint,
   bytes: usize,
@@ -65,11 +73,11 @@ unsafe impl BufferDriver for GL33 {
     })
   }
 
-  unsafe fn len(buffer: &mut Self::Buffer) -> usize {
+  unsafe fn len(buffer: &Self::Buffer) -> usize {
     buffer.len
   }
 
-  unsafe fn bytes(buffer: &mut Self::Buffer) -> usize {
+  unsafe fn bytes(buffer: &Self::Buffer) -> usize {
     buffer.bytes
   }
 
@@ -78,7 +86,7 @@ unsafe impl BufferDriver for GL33 {
   }
 
   unsafe fn at<T>(buffer: &Self::Buffer, i: usize) -> Option<T> where T: Copy {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
 
     let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *const T;
     let x = *ptr.offset(i as isize);
@@ -88,7 +96,7 @@ unsafe impl BufferDriver for GL33 {
   }
 
   unsafe fn whole<T>(buffer: &Self::Buffer) -> Vec<T> {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
 
     let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *mut T;
     let len = buffer.len;
@@ -99,7 +107,7 @@ unsafe impl BufferDriver for GL33 {
   }
 
   unsafe fn set<T>(buffer: &mut Self::Buffer, i: usize, x: T) -> Result<(), Self::Err> {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
 
     let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::WRITE_ONLY) as *mut T;
     *ptr.offset(i as isize) = x;
@@ -109,7 +117,7 @@ unsafe impl BufferDriver for GL33 {
   }
 
   unsafe fn write_whole<T>(buffer: &mut Self::Buffer, values: &[T], bytes: usize) -> Result<(), Self::Err> {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
 
     let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::WRITE_ONLY);
     ptr::copy_nonoverlapping(values.as_ptr() as *const c_void, ptr, bytes);
@@ -119,7 +127,7 @@ unsafe impl BufferDriver for GL33 {
   }
 
   unsafe fn as_slice<T>(buffer: &Self::Buffer) -> Result<*const T, Self::Err> {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
 
     let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *const T;
 
@@ -131,7 +139,7 @@ unsafe impl BufferDriver for GL33 {
   }
 
   unsafe fn as_slice_mut<T>(buffer: &mut Self::Buffer) -> Result<*mut T, Self::Err> {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
 
     let ptr = gl::MapBuffer(gl::ARRAY_BUFFER, gl::READ_ONLY) as *mut T;
 
@@ -142,13 +150,13 @@ unsafe impl BufferDriver for GL33 {
     Ok(ptr)
   }
 
-  unsafe fn drop_slice<T>(buffer: &mut Self::Buffer, _: *const T) {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+  unsafe fn drop_slice<T>(buffer: &Self::Buffer, _: *const T) {
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
     gl::UnmapBuffer(gl::ARRAY_BUFFER);
   }
 
-  unsafe fn drop_slice_mut<T>(buffer: &mut Self::Buffer, _: *mut T) {
-    buffer.state.borrow_mut().bind_array_buffer(buffer.handle);
+  unsafe fn drop_slice_mut<T>(buffer: &Self::Buffer, _: *mut T) {
+    buffer.gfx_state.borrow_mut().bind_array_buffer(buffer.handle);
     gl::UnmapBuffer(gl::ARRAY_BUFFER);
   }
 }
