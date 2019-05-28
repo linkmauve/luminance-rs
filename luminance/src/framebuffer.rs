@@ -58,8 +58,8 @@ where X: FramebufferDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
-      CS: ColorSlot<L, D>,
-      DS: DepthSlot<L, D>, {
+      CS: ColorSlot<X, L, D>,
+      DS: DepthSlot<X, L, D>, {
   raw: X::Framebuffer,
   w: u32,
   h: u32,
@@ -74,20 +74,20 @@ where X: FramebufferDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
-      CS: ColorSlot<L, D>,
-      DS: DepthSlot<L, D>, {
+      CS: ColorSlot<X, L, D>,
+      DS: DepthSlot<X, L, D>, {
   fn drop(&mut self) {
     X::drop_framebuffer(&mut self.raw)
   }
 }
 
-impl<L, D, CS, DS> Framebuffer<L, D, CS, DS>
+impl<X, L, D, CS, DS> Framebuffer<L, D, CS, DS>
 where X: FramebufferDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
-      CS: ColorSlot<L, D>,
-      DS: DepthSlot<L, D>, {
+      CS: ColorSlot<X, L, D>,
+      DS: DepthSlot<X, L, D>, {
   /// Create a new farmebuffer.
   ///
   /// You’re always handed at least the base level of the texture. If you require any *additional*
