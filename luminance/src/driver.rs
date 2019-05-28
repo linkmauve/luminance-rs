@@ -8,9 +8,9 @@ pub mod gl33;
 
 use std::fmt::Display;
 
-//use crate::blending;
-//use crate::depth_test;
-//use crate::face_culling;
+use crate::blending;
+use crate::depth_test;
+use crate::face_culling;
 //use crate::framebuffer;
 //use crate::pixel;
 //use crate::tess;
@@ -19,9 +19,9 @@ use std::fmt::Display;
 //use crate::vertex_restart;
 
 /// Main driver, providing all graphics-related features.
-pub trait Driver: BufferDriver /* + RenderStateDriver + FramebufferDriver + TextureDriver + TessDriver */ {}
+pub trait Driver: BufferDriver + RenderStateDriver /* + FramebufferDriver + TextureDriver + TessDriver */ {}
 
-impl<T> Driver for T where T: BufferDriver /* + RenderStateDriver + FramebufferDriver + TextureDriver + TessDriver */ {}
+impl<T> Driver for T where T: BufferDriver + RenderStateDriver /* + FramebufferDriver + TextureDriver + TessDriver */ {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
@@ -71,24 +71,24 @@ pub unsafe trait BufferDriver {
   unsafe fn drop_slice_mut<T>(buffer: &Self::Buffer, slice: *mut T);
 }
 
-// /// Render state implementation.
-// pub unsafe trait RenderStateDriver {
-//   /// Set the blending state.
-//   unsafe fn set_blending_state(&mut self, state: blending::BlendingState);
-//   /// Set the blending equation.
-//   unsafe fn set_blending_equation(&mut self, equation: blending::Equation);
-//   /// Set the blending function.
-//   unsafe fn set_blending_func(&mut self, src: blending::Factor, dest: blending::Factor);
-//   /// Set the depth test.
-//   unsafe fn set_depth_test(&mut self, depth_test: depth_test::DepthTest);
-//   /// Set the face culling state.
-//   unsafe fn set_face_culling_state(&mut self, state: face_culling::FaceCullingState);
-//   /// Set the face culling order.
-//   unsafe fn set_face_culling_order(&mut self, order: face_culling::FaceCullingOrder);
-//   /// Set the face culling mode.
-//   unsafe fn set_face_culling_mode(&mut self, mode: face_culling::FaceCullingMode);
-// }
-//
+/// Render state implementation.
+pub unsafe trait RenderStateDriver {
+  /// Set the blending state.
+  unsafe fn set_blending_state(&mut self, state: blending::BlendingState);
+  /// Set the blending equation.
+  unsafe fn set_blending_equation(&mut self, equation: blending::Equation);
+  /// Set the blending function.
+  unsafe fn set_blending_func(&mut self, src: blending::Factor, dest: blending::Factor);
+  /// Set the depth test.
+  unsafe fn set_depth_test(&mut self, depth_test: depth_test::DepthTest);
+  /// Set the face culling state.
+  unsafe fn set_face_culling_state(&mut self, state: face_culling::FaceCullingState);
+  /// Set the face culling order.
+  unsafe fn set_face_culling_order(&mut self, order: face_culling::FaceCullingOrder);
+  /// Set the face culling mode.
+  unsafe fn set_face_culling_mode(&mut self, mode: face_culling::FaceCullingMode);
+}
+
 // /// Framebuffer implementation.
 // pub unsafe trait FramebufferDriver {
 //   /// Representation of a graphics framebuffer by this driver.

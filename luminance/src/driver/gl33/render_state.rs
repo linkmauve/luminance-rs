@@ -79,4 +79,3 @@ fn from_blending_factor(factor: Factor) -> GLenum {
     Factor::SrcAlphaSaturate => gl::SRC_ALPHA_SATURATE,
   }
 }
-
