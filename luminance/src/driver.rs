@@ -159,7 +159,7 @@ pub unsafe trait FramebufferDriver {
     &mut self,
     size: [u32; 2],
     mipmaps: usize
-  ) -> Result<Self::Framebuffer, Self::Err>
+  ) -> Result<(Self::Framebuffer, CS, DS), Self::Err>
   where CS: framebuffer::ColorSlot<L, D>,
         DS: framebuffer::DepthSlot<L, D>,
         L: texture::Layerable,

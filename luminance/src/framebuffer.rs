@@ -35,7 +35,7 @@ use crate::context::GraphicsContext;
 use crate::driver::FramebufferDriver;
 use crate::pixel::{ColorPixel, DepthPixel, PixelFormat, RenderablePixel};
 use crate::texture::{
-  create_texture, opengl_target, Dim2, Dimensionable, Flat, Layerable, RawTexture, Texture, TextureError,
+  opengl_target, Dim2, Dimensionable, Flat, Layerable, RawTexture, Texture, TextureError,
 };
 
 /// Framebuffer with static layering, dimension, access and slots formats.
@@ -96,126 +96,20 @@ where X: FramebufferDriver,
     ctx: &mut C,
     size: D::Size,
     mipmaps: usize,
-  ) -> Result<Framebuffer<L, D, CS, DS>, FramebufferError>
-  where
-    C: GraphicsContext,
-  {
+  ) -> Result<Framebuffer<L, D, CS, DS>, <X as FramebufferDriver>::Err>
+  where C: GraphicsContext<Driver = X> {
     let mipmaps = mipmaps + 1;
-    let mut handle: GLuint = 0;
-    let color_formats = CS::color_formats();
-    let depth_format = DS::depth_format();
-    let target = opengl_target(L::layering(), D::dim());
-    let mut textures = vec![0; color_formats.len() + if depth_format.is_some() { 1 } else { 0 }];
-    let mut depth_texture: Option<GLuint> = None;
-    let mut depth_renderbuffer: Option<GLuint> = None;
+    let (raw, cs, ds) = X::new_framebuffer::<L, D, CS, DS>(size, mipmaps)?;
 
-    unsafe {
-      gl::GenFramebuffers(1, &mut handle);
-
-      ctx.state().borrow_mut().bind_draw_framebuffer(handle);
-
-      // generate all the required textures once; the textures vec will be reduced and dispatched
-      // into other containers afterwards (in ColorSlot::reify_textures)
-      gl::GenTextures((textures.len()) as GLint, textures.as_mut_ptr());
-
-      // color textures
-      if color_formats.is_empty() {
-        gl::DrawBuffer(gl::NONE);
-      } else {
-        for (i, (format, texture)) in color_formats.iter().zip(&textures).enumerate() {
-          ctx.state().borrow_mut().bind_texture(target, *texture);
-          create_texture::<L, D>(target, size, mipmaps, *format, &Default::default())
-            .map_err(FramebufferError::TextureError)?;
-          gl::FramebufferTexture(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0 + i as GLenum, *texture, 0);
-        }
-
-        // specify the list of color buffers to draw to
-        let color_buf_nb = color_formats.len() as GLsizei;
-        let color_buffers: Vec<_> =
-          (gl::COLOR_ATTACHMENT0..gl::COLOR_ATTACHMENT0 + color_buf_nb as GLenum).collect();
-
-        gl::DrawBuffers(color_buf_nb, color_buffers.as_ptr());
-      }
-
-      // depth texture, if exists
-      if let Some(format) = depth_format {
-        let texture = textures.pop().unwrap();
-
-        ctx.state().borrow_mut().bind_texture(target, texture);
-        create_texture::<L, D>(target, size, mipmaps, format, &Default::default())
-          .map_err(FramebufferError::TextureError)?;
-        gl::FramebufferTexture(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, texture, 0);
-
-        depth_texture = Some(texture);
-      } else {
-        let mut renderbuffer: GLuint = 0;
-
-        gl::GenRenderbuffers(1, &mut renderbuffer);
-        gl::BindRenderbuffer(gl::RENDERBUFFER, renderbuffer);
-        gl::RenderbufferStorage(
-          gl::RENDERBUFFER,
-          gl::DEPTH_COMPONENT32F,
-          D::width(size) as GLsizei,
-          D::height(size) as GLsizei,
-        );
-        gl::BindRenderbuffer(gl::RENDERBUFFER, 0); // FIXME: see whether really needed
-
-        gl::FramebufferRenderbuffer(
-          gl::FRAMEBUFFER,
-          gl::DEPTH_ATTACHMENT,
-          gl::RENDERBUFFER,
-          renderbuffer,
-        );
-
-        depth_renderbuffer = Some(renderbuffer);
-      }
-
-      ctx.state().borrow_mut().bind_texture(target, 0); // FIXME: see whether really needed
-
-      let framebuffer = Framebuffer {
-        handle,
-        renderbuffer: depth_renderbuffer,
-        w: D::width(size),
-        h: D::height(size),
-        color_slot: CS::reify_textures(ctx, size, mipmaps, &mut textures.into_iter()),
-        depth_slot: DS::reify_texture(ctx, size, mipmaps, depth_texture),
-        _l: PhantomData,
-        _d: PhantomData,
-      };
-
-      match get_status() {
-        Ok(_) => {
-          ctx.state().borrow_mut().bind_draw_framebuffer(0); // FIXME: see whether really needed
-
-          Ok(framebuffer)
-        }
-        Err(reason) => {
-          ctx.state().borrow_mut().bind_draw_framebuffer(0); // FIXME: see whether really needed
-
-          Self::destroy(&framebuffer);
-
-          Err(FramebufferError::Incomplete(reason))
-        }
-      }
-    }
-  }
-
-  // Destroy OpenGL-side stuff.
-  fn destroy(&self) {
-    unsafe {
-      if let Some(renderbuffer) = self.renderbuffer {
-        gl::DeleteRenderbuffers(1, &renderbuffer);
-      }
-
-      if self.handle != 0 {
-        gl::DeleteFramebuffers(1, &self.handle);
-      }
-    }
-  }
-
-  #[inline]
-  pub(crate) fn handle(&self) -> GLuint {
-    self.handle
+    Ok(Framebuffer {
+      raw,
+      w: D::width(size),
+      h: D::height(size),
+      color_slot: cs,
+      depth_slot: ds,
+      _l: PhantomData,
+      _d: PhantomData,
+    })
   }
 
   #[inline]
@@ -239,27 +133,11 @@ where X: FramebufferDriver,
   }
 }
 
-fn get_status() -> Result<(), IncompleteReason> {
-  let status = unsafe { gl::CheckFramebufferStatus(gl::FRAMEBUFFER) };
-
-  match status {
-    gl::FRAMEBUFFER_COMPLETE => Ok(()),
-    gl::FRAMEBUFFER_UNDEFINED => Err(IncompleteReason::Undefined),
-    gl::FRAMEBUFFER_INCOMPLETE_ATTACHMENT => Err(IncompleteReason::IncompleteAttachment),
-    gl::FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => Err(IncompleteReason::MissingAttachment),
-    gl::FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER => Err(IncompleteReason::IncompleteDrawBuffer),
-    gl::FRAMEBUFFER_INCOMPLETE_READ_BUFFER => Err(IncompleteReason::IncompleteReadBuffer),
-    gl::FRAMEBUFFER_UNSUPPORTED => Err(IncompleteReason::Unsupported),
-    gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => Err(IncompleteReason::IncompleteMultisample),
-    gl::FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS => Err(IncompleteReason::IncompleteLayerTargets),
-    _ => panic!("unknown OpenGL framebuffer incomplete status! status={}", status),
-  }
-}
-
 /// A framebuffer has a color slot. A color slot can either be empty (the *unit* type is used,`()`)
 /// or several color formats.
-pub unsafe trait ColorSlot<L, D>
-where L: Layerable,
+pub unsafe trait ColorSlot<X, L, D>
+where X: TextureDriver,
+      L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
   /// Textures associated with this color slot.
@@ -275,11 +153,13 @@ where L: Layerable,
     mipmaps: usize,
     textures: &mut I,
   ) -> Self::ColorTextures
-  where C: GraphicsContext, I: Iterator<Item = GLuint>;
+  where C: GraphicsContext<Driver = X>,
+        I: Iterator<Item = X::Texture>;
 }
 
-unsafe impl<L, D> ColorSlot<L, D> for ()
-where L: Layerable,
+unsafe impl<X, L, D> ColorSlot<X, L, D> for ()
+where X: TextureDriver,
+      L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
   type ColorTextures = ();
@@ -288,25 +168,38 @@ where L: Layerable,
     Vec::new()
   }
 
-  fn reify_textures<C, I>(_: &mut C, _: D::Size, _: usize, _: &mut I) -> Self::ColorTextures
-  where C: GraphicsContext, I: Iterator<Item = GLuint> {
+  fn reify_textures<C, I>(
+    _: &mut C,
+    _: D::Size,
+    _: usize,
+    _: &mut I
+  ) -> Self::ColorTextures
+  where C: GraphicsContext<Driver = X>,
+        I: Iterator<Item = X::Texture> {
     ()
   }
 }
 
-unsafe impl<L, D, P> ColorSlot<L, D> for P
-where L: Layerable,
+unsafe impl<X, L, D, P> ColorSlot<X, L, D> for P
+where X: TextureDriver,
+      L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
       Self: ColorPixel + RenderablePixel {
-  type ColorTextures = Texture<L, D, P>;
+  type ColorTextures = Texture<X, L, D, P>;
 
   fn color_formats() -> Vec<PixelFormat> {
     vec![P::pixel_format()]
   }
 
-  fn reify_textures<C, I>(ctx: &mut C, size: D::Size, mipmaps: usize, textures: &mut I) -> Self::ColorTextures
-  where C: GraphicsContext, I: Iterator<Item = GLuint> {
+  fn reify_textures<C, I>(
+    ctx: &mut C,
+    size: D::Size,
+    mipmaps: usize,
+    textures: &mut I
+  ) -> Self::ColorTextures
+  where C: GraphicsContext<Driver = X>,
+    I: Iterator<Item = X::Texture> {
     let color_texture = textures.next().unwrap();
 
     unsafe {
@@ -322,14 +215,15 @@ where L: Layerable,
 
 macro_rules! impl_color_slot_tuple {
   ($($pf:ident),*) => {
-    unsafe impl<L, D, $($pf),*> ColorSlot<L, D> for ($($pf),*)
-    where L: Layerable,
+    unsafe impl<X, L, D, $($pf),*> ColorSlot<X, L, D> for ($($pf),*)
+    where X: TextureDriver,
+          L: Layerable,
           D: Dimensionable,
           D::Size: Copy,
           $(
             $pf: ColorPixel + RenderablePixel
           ),* {
-      type ColorTextures = ($(Texture<L, D, $pf>),*);
+      type ColorTextures = ($(Texture<X, L, D, $pf>),*);
 
       fn color_formats() -> Vec<PixelFormat> {
         vec![$($pf::pixel_format()),*]
@@ -341,14 +235,15 @@ macro_rules! impl_color_slot_tuple {
         mipmaps: usize,
         textures: &mut I
       ) -> Self::ColorTextures
-      where C: GraphicsContext,
-            I: Iterator<Item = GLuint> {
+      where C: GraphicsContext<Driver = X>,
+            I: Iterator<Item = X::Texture> {
         ($($pf::reify_textures(ctx, size, mipmaps, textures)),*)
       }
     }
   }
 }
 
+// Recursive macro that implements ColorSlot for tuples in decreasing order.
 macro_rules! impl_color_slot_tuples {
   ($first:ident , $second:ident) => {
     // stop at pairs
@@ -367,8 +262,9 @@ impl_color_slot_tuples!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11);
 
 /// A framebuffer has a depth slot. A depth slot can either be empty (the *unit* type is used, `()`)
 /// or a single depth format.
-pub unsafe trait DepthSlot<L, D>
-where L: Layerable,
+pub unsafe trait DepthSlot<X, L, D>
+where X: TextureDriver,
+      L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
   /// Texture associated with this color slot.
@@ -378,12 +274,19 @@ where L: Layerable,
   fn depth_format() -> Option<PixelFormat>;
 
   /// Reify a raw textures into a depth slot.
-  fn reify_texture<C, T>(ctx: &mut C, size: D::Size, mipmaps: usize, texture: T) -> Self::DepthTexture
-  where C: GraphicsContext, T: Into<Option<GLuint>>;
+  fn reify_texture<C, T>(
+    ctx: &mut C,
+    size: D::Size,
+    mipmaps: usize,
+    texture: T
+  ) -> Self::DepthTexture
+  where C: GraphicsContext<Driver = X>,
+        T: Into<Option<X::Texture>>;
 }
 
-unsafe impl<L, D> DepthSlot<L, D> for ()
-where L: Layerable,
+unsafe impl<X, L, D> DepthSlot<X, L, D> for ()
+where X: TextureeDriver,
+      L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
   type DepthTexture = ();
@@ -392,27 +295,38 @@ where L: Layerable,
     None
   }
 
-  fn reify_texture<C, T>(_: &mut C, _: D::Size, _: usize, _: T) -> Self::DepthTexture
-  where C: GraphicsContext,
-        T: Into<Option<GLuint>> {
+  fn reify_texture<C, T>(
+    _: &mut C,
+    _: D::Size,
+    _: usize,
+    _: T
+  ) -> Self::DepthTexture
+  where C: GraphicsContext<Driver = X>,
+        T: Into<Option<X::Texture>> {
     ()
   }
 }
 
-unsafe impl<L, D, P> DepthSlot<L, D> for P
-where L: Layerable,
+unsafe impl<X, L, D, P> DepthSlot<X, L, D> for P
+where X: TextureDriver,
+      L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
       P: DepthPixel {
-  type DepthTexture = Texture<L, D, P>;
+  type DepthTexture = Texture<X, L, D, P>;
 
   fn depth_format() -> Option<PixelFormat> {
     Some(P::pixel_format())
   }
 
-  fn reify_texture<C, T>(ctx: &mut C, size: D::Size, mipmaps: usize, texture: T) -> Self::DepthTexture
-  where C: GraphicsContext,
-        T: Into<Option<GLuint>> {
+  fn reify_texture<C, T>(
+    ctx: &mut C,
+    size: D::Size,
+    mipmaps: usize,
+    texture: T
+  ) -> Self::DepthTexture
+  where C: GraphicsContext<Driver = X>,
+        T: Into<Option<X::Texture>> {
     unsafe {
       let raw = RawTexture::new(
         ctx.state().clone(),
