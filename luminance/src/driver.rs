@@ -21,7 +21,7 @@ use crate::texture;
 /// Main driver, providing all graphics-related features.
 pub trait Driver: BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver /* + TessDriver */ {}
 
-impl<T> Driver for T where T: BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver + /* TessDriver */ {}
+impl<T> Driver for T where T: ?Sized + BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver + /* TessDriver */ {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
@@ -144,7 +144,7 @@ pub unsafe trait TextureDriver {
 }
 
 /// Framebuffer implementation.
-pub unsafe trait FramebufferDriver {
+pub unsafe trait FramebufferDriver: TextureDriver {
   /// Representation of a graphics framebuffer by this driver.
   type Framebuffer;
 
@@ -152,16 +152,19 @@ pub unsafe trait FramebufferDriver {
   type Err;
 
   /// Get the back buffer, if any available.
-  unsafe fn back_buffer(&mut self, size: [u32; 2]) -> Result<Self::Framebuffer, Self::Err>;
+  unsafe fn back_buffer(
+    &mut self,
+    size: [u32; 2]
+  ) -> Result<Self::Framebuffer, <Self as FramebufferDriver>::Err>;
 
   /// Create a framebuffer.
   unsafe fn new_framebuffer<L, D, CS, DS>(
     &mut self,
-    size: [u32; 2],
+    size: D::Size,
     mipmaps: usize
-  ) -> Result<(Self::Framebuffer, CS, DS), Self::Err>
-  where CS: framebuffer::ColorSlot<L, D>,
-        DS: framebuffer::DepthSlot<L, D>,
+  ) -> Result<(Self::Framebuffer, CS::ColorTextures, DS::DepthTexture), <Self as FramebufferDriver>::Err>
+  where CS: framebuffer::ColorSlot<Self, L, D>,
+        DS: framebuffer::DepthSlot<Self, L, D>,
         L: texture::Layerable,
         D: texture::Dimensionable,
         D::Size: Copy;

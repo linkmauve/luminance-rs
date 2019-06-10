@@ -32,11 +32,9 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use crate::context::GraphicsContext;
-use crate::driver::FramebufferDriver;
+use crate::driver::{FramebufferDriver, TextureDriver};
 use crate::pixel::{ColorPixel, DepthPixel, PixelFormat, RenderablePixel};
-use crate::texture::{
-  opengl_target, Dim2, Dimensionable, Flat, Layerable, RawTexture, Texture, TextureError,
-};
+use crate::texture::{Dim2, Dimensionable, Flat, Layerable, Texture};
 
 /// Framebuffer with static layering, dimension, access and slots formats.
 ///
@@ -54,7 +52,7 @@ use crate::texture::{
 /// *T* argets), enabling to render to several textures at once.
 #[derive(Debug)]
 pub struct Framebuffer<X, L, D, CS, DS>
-where X: FramebufferDriver,
+where X: ?Sized + FramebufferDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
@@ -70,19 +68,19 @@ where X: FramebufferDriver,
 }
 
 impl<X, L, D, CS, DS> Drop for Framebuffer<X, L, D, CS, DS>
-where X: FramebufferDriver,
+where X: ?Sized + FramebufferDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
       CS: ColorSlot<X, L, D>,
       DS: DepthSlot<X, L, D>, {
   fn drop(&mut self) {
-    X::drop_framebuffer(&mut self.raw)
+    unsafe { X::drop_framebuffer(&mut self.raw) }
   }
 }
 
-impl<X, L, D, CS, DS> Framebuffer<L, D, CS, DS>
-where X: FramebufferDriver,
+impl<X, L, D, CS, DS> Framebuffer<X, L, D, CS, DS>
+where X: ?Sized + FramebufferDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
@@ -96,10 +94,10 @@ where X: FramebufferDriver,
     ctx: &mut C,
     size: D::Size,
     mipmaps: usize,
-  ) -> Result<Framebuffer<L, D, CS, DS>, <X as FramebufferDriver>::Err>
+  ) -> Result<Self, <X as FramebufferDriver>::Err>
   where C: GraphicsContext<Driver = X> {
     let mipmaps = mipmaps + 1;
-    let (raw, cs, ds) = X::new_framebuffer::<L, D, CS, DS>(size, mipmaps)?;
+    let (raw, cs, ds) = unsafe { ctx.driver().new_framebuffer::<L, D, CS, DS>(size, mipmaps)? };
 
     Ok(Framebuffer {
       raw,
@@ -136,7 +134,7 @@ where X: FramebufferDriver,
 /// A framebuffer has a color slot. A color slot can either be empty (the *unit* type is used,`()`)
 /// or several color formats.
 pub unsafe trait ColorSlot<X, L, D>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
@@ -158,7 +156,7 @@ where X: TextureDriver,
 }
 
 unsafe impl<X, L, D> ColorSlot<X, L, D> for ()
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
@@ -181,7 +179,7 @@ where X: TextureDriver,
 }
 
 unsafe impl<X, L, D, P> ColorSlot<X, L, D> for P
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
@@ -201,22 +199,14 @@ where X: TextureDriver,
   where C: GraphicsContext<Driver = X>,
     I: Iterator<Item = X::Texture> {
     let color_texture = textures.next().unwrap();
-
-    unsafe {
-      let raw = RawTexture::new(
-        ctx.state().clone(),
-        color_texture,
-        opengl_target(L::layering(), D::dim()),
-      );
-      Texture::from_raw(raw, size, mipmaps)
-    }
+    unsafe { Texture::from_raw(color_texture, size, mipmaps) }
   }
 }
 
 macro_rules! impl_color_slot_tuple {
   ($($pf:ident),*) => {
     unsafe impl<X, L, D, $($pf),*> ColorSlot<X, L, D> for ($($pf),*)
-    where X: TextureDriver,
+    where X: ?Sized + TextureDriver,
           L: Layerable,
           D: Dimensionable,
           D::Size: Copy,
@@ -263,7 +253,7 @@ impl_color_slot_tuples!(P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11);
 /// A framebuffer has a depth slot. A depth slot can either be empty (the *unit* type is used, `()`)
 /// or a single depth format.
 pub unsafe trait DepthSlot<X, L, D>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
@@ -285,7 +275,7 @@ where X: TextureDriver,
 }
 
 unsafe impl<X, L, D> DepthSlot<X, L, D> for ()
-where X: TextureeDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy {
@@ -308,7 +298,7 @@ where X: TextureeDriver,
 }
 
 unsafe impl<X, L, D, P> DepthSlot<X, L, D> for P
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       D::Size: Copy,
@@ -327,13 +317,7 @@ where X: TextureDriver,
   ) -> Self::DepthTexture
   where C: GraphicsContext<Driver = X>,
         T: Into<Option<X::Texture>> {
-    unsafe {
-      let raw = RawTexture::new(
-        ctx.state().clone(),
-        texture.into().unwrap(),
-        opengl_target(L::layering(), D::dim()),
-      );
-      Texture::from_raw(raw, size, mipmaps)
-    }
+    let depth_texture = texture.into().unwrap();
+    unsafe { Texture::from_raw(depth_texture, size, mipmaps) }
   }
 }

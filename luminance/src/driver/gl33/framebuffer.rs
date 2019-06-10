@@ -86,7 +86,7 @@ unsafe impl FramebufferDriver for GL33 {
     &mut self,
     size: D::Size,
     mipmaps: usize
-  ) -> Result<(Self::Framebuffer, CS, DS), Self::Err>
+  ) -> Result<(Self::Framebuffer, CS::ColorTextures, DS::DepthTexture), Self::Err>
   where CS: ColorSlot<L, D>,
         DS: DepthSlot<L, D>,
         L: Layerable,

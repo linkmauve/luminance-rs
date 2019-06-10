@@ -33,7 +33,7 @@ use crate::driver::Driver;
 /// threads in any way (move / borrow).
 pub unsafe trait GraphicsContext {
   /// Graphics driver.
-  type Driver;
+  type Driver: ?Sized;
 
   /// Get access to the graphics driver.
   fn driver(&mut self) -> &mut Self::Driver;

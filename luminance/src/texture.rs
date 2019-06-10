@@ -476,7 +476,7 @@ impl Layerable for Layered {
 /// `L` refers to the layering type; `D` refers to the dimension; `P` is the pixel format for the
 /// texels.
 pub struct Texture<X, L, D, P>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       P: Pixel, {
@@ -488,7 +488,7 @@ where X: TextureDriver,
 }
 
 impl<X, L, D, P> Deref for Texture<X, L, D, P>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       P: Pixel, {
@@ -501,7 +501,7 @@ where X: TextureDriver,
 }
 
 impl<X, L, D, P> DerefMut for Texture<X, L, D, P>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       P: Pixel, {
@@ -512,7 +512,7 @@ where X: TextureDriver,
 }
 
 impl<X, L, D, P> Drop for Texture<X, L, D, P>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       P: Pixel, {
@@ -523,7 +523,7 @@ where X: TextureDriver,
 }
 
 impl<X, L, D, P> Texture<X, L, D, P>
-where X: TextureDriver,
+where X: ?Sized + TextureDriver,
       L: Layerable,
       D: Dimensionable,
       P: Pixel, {
