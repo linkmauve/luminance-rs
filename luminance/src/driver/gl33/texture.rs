@@ -21,7 +21,7 @@ pub struct RawTexture {
 }
 
 impl RawTexture {
-  unsafe fn new(state: Rc<RefCell<GraphicsState>>, handle: GLuint, target: GLenum) -> Self {
+  pub(crate) unsafe fn new(state: Rc<RefCell<GraphicsState>>, handle: GLuint, target: GLenum) -> Self {
     RawTexture {
       handle,
       target,
@@ -40,7 +40,7 @@ impl RawTexture {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum TextureError {
   TextureStorageCreationFailed(String),
 }
@@ -181,7 +181,8 @@ pub(crate) fn opengl_target(l: Layering, d: Dim) -> GLenum {
   }
 }
 
-fn create_texture<L, D>(
+// Create a raw texture by populating the content of the bound texture.
+pub(crate) fn create_texture<L, D>(
   target: GLenum,
   size: D::Size,
   mipmaps: usize,

@@ -7,12 +7,12 @@ use std::rc::Rc;
 use crate::driver::FramebufferDriver;
 use crate::driver::gl33::GL33;
 use crate::driver::gl33::state::GraphicsState;
-use crate::driver::gl33::texture::opengl_target;
+use crate::driver::gl33::texture::{RawTexture, TextureError, create_texture, opengl_target};
 use crate::framebuffer::{ColorSlot, DepthSlot};
 use crate::texture::{Dimensionable, Layerable};
 
 /// Framebuffer error.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum FramebufferError {
   TextureError(TextureError),
   Incomplete(IncompleteReason),
@@ -22,7 +22,6 @@ impl fmt::Display for FramebufferError {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     match *self {
       FramebufferError::TextureError(ref e) => write!(f, "framebuffer texture error: {}", e),
-
       FramebufferError::Incomplete(ref e) => write!(f, "incomplete framebuffer: {}", e),
     }
   }
@@ -75,10 +74,11 @@ unsafe impl FramebufferDriver for GL33 {
 
   type Err = FramebufferError;
 
-  unsafe fn back_buffer(&mut self, _: [u32; 2]) -> Result<Self::Framebuffer, Self::Err> {
+  unsafe fn back_buffer(&mut self, _: [u32; 2]) -> Result<Self::Framebuffer, <Self as FramebufferDriver>::Err> {
     Ok(Framebuffer {
       handle: 0,
-      renderbuffer: None
+      renderbuffer: None,
+      state: self.state.clone()
     })
   }
 
@@ -86,9 +86,9 @@ unsafe impl FramebufferDriver for GL33 {
     &mut self,
     size: D::Size,
     mipmaps: usize
-  ) -> Result<(Self::Framebuffer, CS::ColorTextures, DS::DepthTexture), Self::Err>
-  where CS: ColorSlot<L, D>,
-        DS: DepthSlot<L, D>,
+  ) -> Result<(Self::Framebuffer, CS::ColorTextures, DS::DepthTexture), <Self as FramebufferDriver>::Err>
+  where CS: ColorSlot<Self, L, D>,
+        DS: DepthSlot<Self, L, D>,
         L: Layerable,
         D: Dimensionable,
         D::Size: Copy {
@@ -97,7 +97,7 @@ unsafe impl FramebufferDriver for GL33 {
     let depth_format = DS::depth_format();
     let target = opengl_target(L::layering(), D::dim());
     let mut textures = vec![0; color_formats.len() + if depth_format.is_some() { 1 } else { 0 }];
-    let mut depth_texture: Option<GLuint> = None;
+    let mut depth_texture = None;
     let mut depth_renderbuffer: Option<GLuint> = None;
 
     gl::GenFramebuffers(1, &mut handle);
@@ -132,12 +132,13 @@ unsafe impl FramebufferDriver for GL33 {
     if let Some(format) = depth_format {
       let texture = textures.pop().unwrap();
 
-      ctx.state().borrow_mut().bind_texture(target, texture);
+      self.state.borrow_mut().bind_texture(target, texture);
       create_texture::<L, D>(target, size, mipmaps, format, &Default::default())
         .map_err(FramebufferError::TextureError)?;
 
       gl::FramebufferTexture(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, texture, 0);
 
+      let texture = RawTexture::new(self.state.clone(), texture, target);
       depth_texture = Some(texture);
     } else {
       let mut renderbuffer: GLuint = 0;
@@ -170,17 +171,21 @@ unsafe impl FramebufferDriver for GL33 {
       renderbuffer: depth_renderbuffer,
       state: self.state.clone(),
     };
-    let cs = CS::reify_textures(ctx, size, mipmaps, &mut textures.into_iter());
-    let ds = DS::reify_texture(ctx, size, mipmaps, depth_texture);
+
+    // create the color textures
+    let mut color_textures = textures.into_iter().map(|t| RawTexture::new(self.state.clone(), t, target));
+    let cs = CS::reify_textures(size, mipmaps, &mut color_textures);
+    let ds = DS::reify_texture(size, mipmaps, depth_texture);
 
     match get_status() {
       Ok(_) => {
-        ctx.state().borrow_mut().bind_draw_framebuffer(0); // FIXME: see whether really needed
+        self.state.borrow_mut().bind_draw_framebuffer(0); // FIXME: see whether really needed
 
         Ok((framebuffer, cs, ds))
       }
       Err(reason) => {
-        ctx.state().borrow_mut().bind_draw_framebuffer(0); // FIXME: see whether really needed
+        let mut framebuffer = framebuffer;
+        self.state.borrow_mut().bind_draw_framebuffer(0); // FIXME: see whether really needed
         Self::drop_framebuffer(&mut framebuffer);
         Err(FramebufferError::Incomplete(reason))
       }

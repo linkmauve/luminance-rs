@@ -145,14 +145,12 @@ where X: ?Sized + TextureDriver,
   fn color_formats() -> Vec<PixelFormat>;
 
   /// Reify a list of raw textures.
-  fn reify_textures<C, I>(
-    ctx: &mut C,
+  fn reify_textures<I>(
     size: D::Size,
     mipmaps: usize,
     textures: &mut I,
   ) -> Self::ColorTextures
-  where C: GraphicsContext<Driver = X>,
-        I: Iterator<Item = X::Texture>;
+  where I: Iterator<Item = X::Texture>;
 }
 
 unsafe impl<X, L, D> ColorSlot<X, L, D> for ()
@@ -166,14 +164,12 @@ where X: ?Sized + TextureDriver,
     Vec::new()
   }
 
-  fn reify_textures<C, I>(
-    _: &mut C,
+  fn reify_textures<I>(
     _: D::Size,
     _: usize,
     _: &mut I
   ) -> Self::ColorTextures
-  where C: GraphicsContext<Driver = X>,
-        I: Iterator<Item = X::Texture> {
+  where I: Iterator<Item = X::Texture> {
     ()
   }
 }
@@ -190,14 +186,12 @@ where X: ?Sized + TextureDriver,
     vec![P::pixel_format()]
   }
 
-  fn reify_textures<C, I>(
-    ctx: &mut C,
+  fn reify_textures<I>(
     size: D::Size,
     mipmaps: usize,
     textures: &mut I
   ) -> Self::ColorTextures
-  where C: GraphicsContext<Driver = X>,
-    I: Iterator<Item = X::Texture> {
+  where I: Iterator<Item = X::Texture> {
     let color_texture = textures.next().unwrap();
     unsafe { Texture::from_raw(color_texture, size, mipmaps) }
   }
@@ -219,15 +213,13 @@ macro_rules! impl_color_slot_tuple {
         vec![$($pf::pixel_format()),*]
       }
 
-      fn reify_textures<C, I>(
-        ctx: &mut C,
+      fn reify_textures<I>(
         size: D::Size,
         mipmaps: usize,
         textures: &mut I
       ) -> Self::ColorTextures
-      where C: GraphicsContext<Driver = X>,
-            I: Iterator<Item = X::Texture> {
-        ($($pf::reify_textures(ctx, size, mipmaps, textures)),*)
+      where I: Iterator<Item = X::Texture> {
+        ($($pf::reify_textures(size, mipmaps, textures)),*)
       }
     }
   }
@@ -264,14 +256,12 @@ where X: ?Sized + TextureDriver,
   fn depth_format() -> Option<PixelFormat>;
 
   /// Reify a raw textures into a depth slot.
-  fn reify_texture<C, T>(
-    ctx: &mut C,
+  fn reify_texture<T>(
     size: D::Size,
     mipmaps: usize,
     texture: T
   ) -> Self::DepthTexture
-  where C: GraphicsContext<Driver = X>,
-        T: Into<Option<X::Texture>>;
+  where T: Into<Option<X::Texture>>;
 }
 
 unsafe impl<X, L, D> DepthSlot<X, L, D> for ()
@@ -285,14 +275,12 @@ where X: ?Sized + TextureDriver,
     None
   }
 
-  fn reify_texture<C, T>(
-    _: &mut C,
+  fn reify_texture<T>(
     _: D::Size,
     _: usize,
     _: T
   ) -> Self::DepthTexture
-  where C: GraphicsContext<Driver = X>,
-        T: Into<Option<X::Texture>> {
+  where T: Into<Option<X::Texture>> {
     ()
   }
 }
@@ -309,14 +297,12 @@ where X: ?Sized + TextureDriver,
     Some(P::pixel_format())
   }
 
-  fn reify_texture<C, T>(
-    ctx: &mut C,
+  fn reify_texture<T>(
     size: D::Size,
     mipmaps: usize,
     texture: T
   ) -> Self::DepthTexture
-  where C: GraphicsContext<Driver = X>,
-        T: Into<Option<X::Texture>> {
+  where T: Into<Option<X::Texture>> {
     let depth_texture = texture.into().unwrap();
     unsafe { Texture::from_raw(depth_texture, size, mipmaps) }
   }
