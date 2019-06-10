@@ -75,7 +75,7 @@ use crate::linear::{M22, M33, M44};
 
 /// Buffer errors.
 #[derive(Debug, Eq, PartialEq)]
-pub enum BufferError<D> where D: BufferDriver {
+pub enum BufferError<D> where D: ?Sized + BufferDriver {
   /// Error occurring in a driver.
   DriverError(D::Err),
   /// Overflow when setting a value with a specific index.
@@ -257,14 +257,14 @@ impl<T, D> Drop for Buffer<T, D> where D: BufferDriver {
 }
 
 /// A buffer slice mapped into GPU memory.
-pub struct BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
+pub struct BufferSlice<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   // Borrowed raw buffer.
   buf: &'a D::Buffer,
   // Raw pointer into the GPU memory.
   ptr: *const T,
 }
 
-impl<'a, T, D> BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> BufferSlice<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   /// Create a buffer slice from a driver’s buffer representation.
   pub(crate) fn from_driver_buf_ref(buf: &'a D::Buffer) -> Result<Self, BufferError<D>> {
     let ptr = unsafe { D::as_slice::<T>(buf).map_err(BufferError::DriverError)? };
@@ -272,13 +272,13 @@ impl<'a, T, D> BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   }
 }
 
-impl<'a, T, D> Drop for BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> Drop for BufferSlice<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   fn drop(&mut self) {
     unsafe { D::drop_slice(&mut self.buf, self.ptr) }
   }
 }
 
-impl<'a, T, D> Deref for BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> Deref for BufferSlice<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   type Target = [T];
 
   fn deref(&self) -> &Self::Target {
@@ -286,7 +286,7 @@ impl<'a, T, D> Deref for BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
   }
 }
 
-impl<'a, 'b, T, D> IntoIterator for &'b BufferSlice<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, 'b, T, D> IntoIterator for &'b BufferSlice<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   type IntoIter = slice::Iter<'b, T>;
   type Item = &'b T;
 
@@ -296,14 +296,14 @@ impl<'a, 'b, T, D> IntoIterator for &'b BufferSlice<'a, T, D> where T: 'a, D: Bu
 }
 
 /// A buffer mutable slice into GPU memory.
-pub struct BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+pub struct BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   // Borrowed buffer.
   buf: &'a D::Buffer,
   // Raw pointer into the GPU memory.
   ptr: *mut T,
 }
 
-impl<'a, T, D> BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   /// Create a buffer slice from a driver’s buffer representation.
   pub(crate) fn from_driver_buf_ref(buf: &'a mut D::Buffer) -> Result<Self, BufferError<D>> {
     let ptr = unsafe { D::as_slice_mut::<T>(buf).map_err(BufferError::DriverError)? };
@@ -311,13 +311,13 @@ impl<'a, T, D> BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   }
 }
 
-impl<'a, T, D> Drop for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> Drop for BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   fn drop(&mut self) {
     unsafe { D::drop_slice_mut(&mut self.buf, self.ptr) }
   }
 }
 
-impl<'a, 'b, T, D> IntoIterator for &'b BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, 'b, T, D> IntoIterator for &'b BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   type IntoIter = slice::Iter<'b, T>;
   type Item = &'b T;
 
@@ -326,7 +326,7 @@ impl<'a, 'b, T, D> IntoIterator for &'b BufferSliceMut<'a, T, D> where T: 'a, D:
   }
 }
 
-impl<'a, 'b, T, D> IntoIterator for &'b mut BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, 'b, T, D> IntoIterator for &'b mut BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   type IntoIter = slice::IterMut<'b, T>;
   type Item = &'b mut T;
 
@@ -335,7 +335,7 @@ impl<'a, 'b, T, D> IntoIterator for &'b mut BufferSliceMut<'a, T, D> where T: 'a
   }
 }
 
-impl<'a, T, D> Deref for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> Deref for BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   type Target = [T];
 
   fn deref(&self) -> &Self::Target {
@@ -343,7 +343,7 @@ impl<'a, T, D> Deref for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
   }
 }
 
-impl<'a, T, D> DerefMut for BufferSliceMut<'a, T, D> where T: 'a, D: BufferDriver {
+impl<'a, T, D> DerefMut for BufferSliceMut<'a, T, D> where T: 'a, D: ?Sized + BufferDriver {
   fn deref_mut(&mut self) -> &mut Self::Target {
     unsafe { slice::from_raw_parts_mut(self.ptr, D::len(&self.buf)) }
   }

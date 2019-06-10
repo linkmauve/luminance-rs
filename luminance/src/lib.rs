@@ -116,7 +116,7 @@ pub mod linear;
 pub mod pixel;
 pub mod render_state;
 //pub mod shader;
-//pub mod tess;
+pub mod tess;
 pub mod texture;
 pub mod vertex;
 pub mod vertex_restart;

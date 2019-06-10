@@ -84,7 +84,7 @@ pub enum Mode {
 
 /// Error that can occur while trying to map GPU tessellation to host code.
 #[derive(Debug, Eq, PartialEq)]
-pub enum TessMapError<D> where D: BufferDriver {
+pub enum TessMapError<D> where D: ?Sized + BufferDriver {
   /// The CPU mapping failed due to buffer errors.
   VertexBufferMapFailed(BufferError<D>),
   /// Target type is not the same as the one stored in the buffer.
@@ -121,7 +121,7 @@ struct VertexBuffer<D> where D: BufferDriver {
   buf: D::Buffer,
 }
 
-enum TessBuilderError<D> where D: TessDriver {
+enum TessBuilderError<D> where D: ?Sized + TessDriver {
   CannotCreate(<D as TessDriver>::Err)
 }
 
@@ -223,7 +223,7 @@ impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
   }
 }
 
-pub enum TessError<D> where D: TessDriver {
+pub enum TessError<D> where D: ?Sized + TessDriver {
   DriverError(<D as TessDriver>::Err),
   AttributelessError(String),
   LengthIncoherency(usize),
@@ -263,11 +263,11 @@ unsafe impl TessIndex for u32 {
   const INDEX_TYPE: TessIndexType = TessIndexType::U32;
 }
 
-pub struct Tess<D> where D: TessDriver {
+pub struct Tess<D> where D: ?Sized + TessDriver {
   inner: D::Tess,
 }
 
-impl<D> Tess<D> where D: TessDriver {
+impl<D> Tess<D> where D: ?Sized + TessDriver {
   fn render<C>(&self, ctx: &mut C, start_index: usize, vert_nb: usize, inst_nb: usize)
   where C: GraphicsContext<Driver = D> {
     ctx.driver().render_tess(self, start_index, vert_nb, inst_nb)
@@ -298,7 +298,7 @@ impl<D> Tess<D> where D: TessDriver {
   }
 }
 
-impl<D> Drop for Tess<D> where D: TessDriver {
+impl<D> Drop for Tess<D> where D: ?Sized + TessDriver {
   fn drop(&mut self) {
     unsafe { D::drop_tess(self) }
   }
@@ -308,7 +308,7 @@ impl<D> Drop for Tess<D> where D: TessDriver {
 ///
 /// This type enables slicing a tessellation on the fly so that we can render patches of it.
 #[derive(Clone)]
-pub struct TessSlice<'a, D> where D: TessDriver {
+pub struct TessSlice<'a, D> where D: ?Sized + TessDriver {
   /// Tessellation to render.
   tess: &'a Tess<D>,
   /// Start index (vertex) in the tessellation.
@@ -319,7 +319,7 @@ pub struct TessSlice<'a, D> where D: TessDriver {
   inst_nb: usize,
 }
 
-impl<'a, D> TessSlice<'a, D> where D: TessDriver {
+impl<'a, D> TessSlice<'a, D> where D: ?Sized + TessDriver {
   /// Create a tessellation render that will render the whole input tessellation with only one
   /// instance.
   pub fn one_whole(tess: &'a Tess<D>) -> Self {
@@ -399,36 +399,36 @@ impl<'a, D> TessSlice<'a, D> where D: TessDriver {
   }
 }
 
-impl<'a, D> From<&'a Tess<D>> for TessSlice<'a, D> where D: TessDriver {
+impl<'a, D> From<&'a Tess<D>> for TessSlice<'a, D> where D: ?Sized + TessDriver {
   fn from(tess: &'a Tess<D>) -> Self {
     TessSlice::one_whole(tess)
   }
 }
 
-pub trait TessSliceIndex<Idx, D> where D: TessDriver {
+pub trait TessSliceIndex<Idx, D> where D: ?Sized + TessDriver {
   fn slice<'a>(&'a self, idx: Idx) -> TessSlice<'a, D>;
 }
 
-impl<D> TessSliceIndex<RangeFull, D> for Tess<D> where D: TessDriver {
-  fn slice<'a>(&self, _: RangeFull) -> TessSlice<'a, D> {
+impl<D> TessSliceIndex<RangeFull, D> for Tess<D> where D: ?Sized + TessDriver {
+  fn slice<'a>(&'a self, _: RangeFull) -> TessSlice<'a, D> {
     TessSlice::one_whole(self)
   }
 }
 
-impl<D> TessSliceIndex<RangeTo<usize>, D> for Tess<D> where D: TessDriver {
-  fn slice<'a>(&self, to: RangeTo<usize>) -> TessSlice<'a, D> {
+impl<D> TessSliceIndex<RangeTo<usize>, D> for Tess<D> where D: ?Sized + TessDriver {
+  fn slice<'a>(&'a self, to: RangeTo<usize>) -> TessSlice<'a, D> {
     TessSlice::one_sub(self, to.end)
   }
 }
 
-impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: TessDriver {
-  fn slice<'a>(&self, from: RangeFrom<usize>) -> TessSlice<'a, D> {
+impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: ?Sized + TessDriver {
+  fn slice<'a>(&'a self, from: RangeFrom<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, from.start, self.vert_nb)
   }
 }
 
-impl<D> TessSliceIndex<Range<usize>, D> for Tess<D> where D: TessDriver {
-  fn slice<'a>(&self, range: Range<usize>) -> TessSlice<'a, D> {
+impl<D> TessSliceIndex<Range<usize>, D> for Tess<D> where D: ?Sized + TessDriver {
+  fn slice<'a>(&'a self, range: Range<usize>) -> TessSlice<'a, D> {
     TessSlice::one_slice(self, range.start, range.end)
   }
 }
