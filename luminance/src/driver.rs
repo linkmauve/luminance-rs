@@ -13,6 +13,7 @@ use crate::depth_test;
 use crate::face_culling;
 use crate::framebuffer;
 use crate::pixel;
+use crate::shader::stage2;
 use crate::tess;
 use crate::texture;
 use crate::vertex;
@@ -282,6 +283,24 @@ pub unsafe trait TessDriver: BufferDriver {
   );
 }
 
+/// Shader implementation.
+pub unsafe trait ShaderDriver {
+  /// Representation of a shader stage.
+  type Stage;
+
+  /// Type of error that can occur in implementations.
+  type Err: Debug + Display;
+
+  /// Create a new shader stage based on a string representing its source code.
+  unsafe fn new_shader_stage(ty: stage2::Type, src: &str) -> Result<Self::Stage, Self::Err>;
+
+  /// Drop a shader stage.
+  unsafe fn drop_shader_stage(stage: &mut Self::Stage);
+
+  /// Source a shader stage with a source code.
+  unsafe fn source_shader_stage(stage: &mut Self::Stage, src: &str) -> Result<(), Self::Err>;
+}
+
 // /// Rendering pipeline implementation.
 // pub unsafe trait PipelineDriver: BufferDriver + FramebufferDriver + TextureDriver {
 //   type Builder;
@@ -299,7 +318,7 @@ pub unsafe trait TessDriver: BufferDriver {
 //   /// Create a new pipeline builder.
 //   unsafe fn new_builder(&mut self) -> Result<Self::Builder, <Self as PipelineDriver>::Err>;
 //
-//   /// Pre-run a pipeline.
+//   /// Run a pipeline.
 //   unsafe fn run_pipeline<F>(
 //     builder: &mut Self::Builder,
 //     framebufer: &mut Self::Framebuffer,

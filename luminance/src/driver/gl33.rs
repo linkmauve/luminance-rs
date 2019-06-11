@@ -2,6 +2,7 @@ mod buffer;
 mod framebuffer;
 //mod pipeline;
 mod render_state;
+mod shader;
 mod state;
 mod texture;
 

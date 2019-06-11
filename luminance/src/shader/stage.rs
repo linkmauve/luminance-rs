@@ -1,22 +1,8 @@
-#[cfg(feature = "std")]
+use gl;
+use gl::types::*;
 use std::ffi::CString;
-#[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
 use std::ptr::{null, null_mut};
-
-#[cfg(not(feature = "std"))]
-use alloc::prelude::ToOwned;
-#[cfg(not(feature = "std"))]
-use alloc::string::String;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use core::fmt;
-#[cfg(not(feature = "std"))]
-use core::ptr::{null, null_mut};
-
-use crate::metagl::*;
 
 /// A shader stage type.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -87,21 +73,8 @@ impl Stage {
   // Source a shader stage with the given shader stage handle and the source.
   #[inline(always)]
   fn source(handle: GLuint, src: &str) {
-    #[cfg(feature = "std")]
-    {
-      let c_src = CString::new(glsl_pragma_src(src).as_bytes()).unwrap();
-      unsafe { gl::ShaderSource(handle, 1, [c_src.as_ptr()].as_ptr(), null()) };
-    }
-
-    #[cfg(not(feature = "std"))]
-    {
-      unsafe {
-        // we ignore errors since we’ll fail when compiling
-        let _ = with_cstring(&glsl_pragma_src(src), |c_src| {
-          gl::ShaderSource(handle, 1, [c_src].as_ptr(), null());
-        });
-      }
-    }
+    let c_src = CString::new(glsl_pragma_src(src).as_bytes()).unwrap();
+    unsafe { gl::ShaderSource(handle, 1, [c_src.as_ptr()].as_ptr(), null()) };
   }
 
   #[inline]

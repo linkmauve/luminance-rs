@@ -28,34 +28,15 @@
 //!
 //! You can create a `Program` with its `new` associated function.
 
-#[cfg(feature = "std")]
+use gl;
+use gl::types::*;
 use std::ffi::CString;
-#[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
 use std::marker::PhantomData;
-#[cfg(feature = "std")]
 use std::ops::Deref;
-#[cfg(feature = "std")]
 use std::ptr::null_mut;
 
-#[cfg(not(feature = "std"))]
-use alloc::prelude::ToOwned;
-#[cfg(not(feature = "std"))]
-use alloc::string::String;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use core::fmt::{self, Write};
-#[cfg(not(feature = "std"))]
-use core::marker::PhantomData;
-#[cfg(not(feature = "std"))]
-use core::ops::Deref;
-#[cfg(not(feature = "std"))]
-use core::ptr::null_mut;
-
 use crate::linear::{M22, M33, M44};
-use crate::metagl::*;
 use crate::shader::stage::{self, Stage, StageError};
 use crate::vertex::Semantics;
 
@@ -388,18 +369,8 @@ impl<'a> UniformBuilder<'a> {
 
   fn ask_uniform<T>(&self, name: &str) -> Result<Uniform<T>, UniformWarning>
   where T: Uniformable {
-    let location = {
-      #[cfg(feature = "std")]
-      {
-        let c_name = CString::new(name.as_bytes()).unwrap();
-        unsafe { gl::GetUniformLocation(self.raw.handle, c_name.as_ptr() as *const GLchar) }
-      }
-
-      #[cfg(not(feature = "std"))]
-      {
-        unsafe { with_cstring(name, |c_name| gl::GetUniformLocation(self.raw.handle, c_name)).unwrap_or(-1) }
-      }
-    };
+    let c_name = CString::new(name.as_bytes()).unwrap();
+    let location = unsafe { gl::GetUniformLocation(self.raw.handle, c_name.as_ptr() as *const GLchar) };
 
     if location < 0 {
       Err(UniformWarning::Inactive(name.to_owned()))
@@ -410,21 +381,8 @@ impl<'a> UniformBuilder<'a> {
 
   fn ask_uniform_block<T>(&self, name: &str) -> Result<Uniform<T>, UniformWarning>
   where T: Uniformable {
-    let location = {
-      #[cfg(feature = "std")]
-      {
-        let c_name = CString::new(name.as_bytes()).unwrap();
-        unsafe { gl::GetUniformBlockIndex(self.raw.handle, c_name.as_ptr() as *const GLchar) }
-      }
-
-      #[cfg(not(feature = "std"))]
-      {
-        unsafe {
-          with_cstring(name, |c_name| gl::GetUniformBlockIndex(self.raw.handle, c_name))
-            .unwrap_or(gl::INVALID_INDEX)
-        }
-      }
-    };
+    let c_name = CString::new(name.as_bytes()).unwrap();
+    let location = unsafe { gl::GetUniformBlockIndex(self.raw.handle, c_name.as_ptr() as *const GLchar) };
 
     if location == gl::INVALID_INDEX {
       Err(UniformWarning::Inactive(name.to_owned()))
@@ -1071,32 +1029,8 @@ fn uniform_type_match(program: GLuint, name: &str, ty: Type) -> Result<(), Strin
     // get the index of the uniform
     let mut index = 0;
 
-    #[cfg(feature = "std")]
-    {
-      let c_name = CString::new(name.as_bytes()).unwrap();
-      gl::GetUniformIndices(program, 1, [c_name.as_ptr() as *const GLchar].as_ptr(), &mut index);
-    }
-
-    #[cfg(not(feature = "std"))]
-    {
-      let r = with_cstring(name, |c_name| {
-        gl::GetUniformIndices(program, 1, [c_name].as_ptr(), &mut index);
-      });
-
-      if let Err(_) = r {
-        #[cfg(feature = "std")]
-        {
-          return Err(format!("unable to find the index of {}", name));
-        }
-
-        #[cfg(not(feature = "std"))]
-        {
-          let mut reason = String::new();
-          let _ = write!(&mut reason, "unable to find the index of {}", name);
-          return Err(reason);
-        }
-      }
-    }
+    let c_name = CString::new(name.as_bytes()).unwrap();
+    gl::GetUniformIndices(program, 1, [c_name.as_ptr() as *const GLchar].as_ptr(), &mut index);
 
     // get its size and type
     let mut name_ = Vec::<GLchar>::with_capacity(max_len as usize);
