@@ -83,8 +83,8 @@ pub enum Mode {
 }
 
 /// Error that can occur while trying to map GPU tessellation to host code.
-#[derive(Debug, Eq, PartialEq)]
-pub enum TessMapError<D> where D: ?Sized + BufferDriver {
+#[derive(Debug)]
+pub enum TessMapError<D> where D: ?Sized + TessDriver {
   /// The CPU mapping failed due to buffer errors.
   VertexBufferMapFailed(BufferError<D>),
   /// Target type is not the same as the one stored in the buffer.
@@ -95,9 +95,11 @@ pub enum TessMapError<D> where D: ?Sized + BufferDriver {
   /// The CPU mapping failed because currently, mapping deinterleaved buffers is not supported via
   /// a single slice.
   ForbiddenDeinterleavedMapping,
+  /// An error occurred in the tessellation driver.
+  DriverError(<D as TessDriver>::Err)
 }
 
-impl<D> fmt::Display for TessMapError<D> where D: BufferDriver {
+impl<D> fmt::Display for TessMapError<D> where D: TessDriver {
   fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
     match *self {
       TessMapError::VertexBufferMapFailed(ref e) => write!(f, "cannot map tessellation buffer: {}", e),
@@ -110,6 +112,8 @@ impl<D> fmt::Display for TessMapError<D> where D: BufferDriver {
       TessMapError::ForbiddenDeinterleavedMapping => {
         f.write_str("cannot map a deinterleaved buffer as interleaved")
       }
+
+      TessMapError::DriverError(ref e) => write!(f, "tessellation driver error: {}", e)
     }
   }
 }
@@ -121,7 +125,7 @@ struct VertexBuffer<D> where D: BufferDriver {
   buf: D::Buffer,
 }
 
-enum TessBuilderError<D> where D: ?Sized + TessDriver {
+pub enum TessBuilderError<D> where D: ?Sized + TessDriver {
   CannotCreate(<D as TessDriver>::Err)
 }
 
@@ -137,7 +141,7 @@ pub struct TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
 
 impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
   pub fn new(ctx: &'a mut C) -> Result<Self, TessBuilderError<C::Driver>> {
-    let inner = ctx.driver().new_tess_builder().map_err(TessBuilderError::CannotCreate)?;
+    let inner = unsafe { ctx.driver().new_tess_builder().map_err(TessBuilderError::CannotCreate)? };
 
     Ok(TessBuilder {
       ctx,
@@ -219,6 +223,7 @@ impl<'a, C> TessBuilder<'a, C> where C: GraphicsContext, C::Driver: TessDriver {
       self.ctx.driver()
         .build_tess(self.inner, self.vert_nb, self.inst_nb)
         .map_err(TessError::DriverError)
+        .map(Tess::new)
     }
   }
 }
@@ -268,39 +273,43 @@ pub struct Tess<D> where D: ?Sized + TessDriver {
 }
 
 impl<D> Tess<D> where D: ?Sized + TessDriver {
+  fn new(inner: D::Tess) -> Self {
+    Tess { inner }
+  }
+
   fn render<C>(&self, ctx: &mut C, start_index: usize, vert_nb: usize, inst_nb: usize)
   where C: GraphicsContext<Driver = D> {
-    ctx.driver().render_tess(self, start_index, vert_nb, inst_nb)
+    unsafe { ctx.driver().render_tess(&self.inner, start_index, vert_nb, inst_nb) }
   }
 
   pub fn as_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>>
   where V: Vertex {
-    let buf = D::tess_vertex_buffer(&self.inner).map_err(TessMapError::DriverError)?;
+    let buf = unsafe { D::tess_vertex_buffer::<V>(&self.inner).map_err(TessMapError::DriverError)? };
     BufferSlice::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 
-  pub fn as_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
+  pub fn as_slice_mut<'a, V>(&'a mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
   where V: Vertex {
-    let buf = D::tess_vertex_buffer_mut(&mut self.inner).map_err(TessMapError::DriverError)?;
+    let buf = unsafe { D::tess_vertex_buffer_mut::<V>(&mut self.inner).map_err(TessMapError::DriverError)? };
     BufferSliceMut::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 
   pub fn as_inst_slice<'a, V>(&'a self) -> Result<BufferSlice<V, D>, TessMapError<D>>
   where V: Vertex {
-    let buf = D::tess_inst_buffer(&mut self.inner).map_err(TessMapError::DriverError)?;
+    let buf = unsafe { D::tess_inst_buffer::<V>(&self.inner).map_err(TessMapError::DriverError)? };
     BufferSlice::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 
-  pub fn as_inst_slice_mut<'a, V>(&mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
+  pub fn as_inst_slice_mut<'a, V>(&'a mut self) -> Result<BufferSliceMut<V, D>, TessMapError<D>>
   where V: Vertex {
-    let buf = D::tess_inst_buffer_mut(&mut self.inner).map_err(TessMapError::DriverError)?;
+    let buf = unsafe { D::tess_inst_buffer_mut::<V>(&mut self.inner).map_err(TessMapError::DriverError)? };
     BufferSliceMut::from_driver_buf_ref(buf).map_err(TessMapError::VertexBufferMapFailed)
   }
 }
 
 impl<D> Drop for Tess<D> where D: ?Sized + TessDriver {
   fn drop(&mut self) {
-    unsafe { D::drop_tess(self) }
+    unsafe { D::drop_tess(&mut self.inner) }
   }
 }
 
@@ -326,8 +335,8 @@ impl<'a, D> TessSlice<'a, D> where D: ?Sized + TessDriver {
     TessSlice {
       tess,
       start_index: 0,
-      vert_nb: tess.vert_nb,
-      inst_nb: tess.inst_nb,
+      vert_nb: unsafe { D::vert_nb(&tess.inner) },
+      inst_nb: unsafe { D::inst_nb(&tess.inner) },
     }
   }
 
@@ -343,10 +352,12 @@ impl<'a, D> TessSlice<'a, D> where D: ?Sized + TessDriver {
   ///
   /// Panic if the number of vertices is higher to the capacity of the tessellation’s vertex buffer.
   pub fn one_sub(tess: &'a Tess<D>, vert_nb: usize) -> Self {
-    if vert_nb > tess.vert_nb {
+    let tess_vert_nb = unsafe { D::vert_nb(&tess.inner) };
+
+    if vert_nb > tess_vert_nb {
       panic!(
         "cannot render {} vertices for a tessellation which vertex capacity is {}",
-        vert_nb, tess.vert_nb
+        vert_nb, tess_vert_nb
       );
     }
 
@@ -369,17 +380,19 @@ impl<'a, D> TessSlice<'a, D> where D: ?Sized + TessDriver {
   ///
   /// Panic if the number of vertices is higher to the capacity of the tessellation’s vertex buffer.
   pub fn one_slice(tess: &'a Tess<D>, start: usize, nb: usize) -> Self {
-    if start > tess.vert_nb {
+    let vert_nb = unsafe { D::vert_nb(&tess.inner) };
+
+    if start > vert_nb {
       panic!(
         "cannot render {} vertices starting at vertex {} for a tessellation which vertex capacity is {}",
-        nb, start, tess.vert_nb
+        nb, start, vert_nb
       );
     }
 
-    if nb > tess.vert_nb {
+    if nb > vert_nb {
       panic!(
         "cannot render {} vertices for a tessellation which vertex capacity is {}",
-        nb, tess.vert_nb
+        nb, vert_nb
       );
     }
 
@@ -423,7 +436,8 @@ impl<D> TessSliceIndex<RangeTo<usize>, D> for Tess<D> where D: ?Sized + TessDriv
 
 impl<D> TessSliceIndex<RangeFrom<usize>, D> for Tess<D> where D: ?Sized + TessDriver {
   fn slice<'a>(&'a self, from: RangeFrom<usize>) -> TessSlice<'a, D> {
-    TessSlice::one_slice(self, from.start, self.vert_nb)
+    let vert_nb = unsafe { D::vert_nb(&self.inner) };
+    TessSlice::one_slice(self, from.start, vert_nb)
   }
 }
 

@@ -6,7 +6,7 @@
 
 pub mod gl33;
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use crate::blending;
 use crate::depth_test;
@@ -18,9 +18,9 @@ use crate::texture;
 use crate::vertex;
 
 /// Main driver, providing all graphics-related features.
-pub trait Driver: BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver /* + TessDriver */ {}
+pub trait Driver: BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver + TessDriver {}
 
-impl<T> Driver for T where T: ?Sized + BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver + /* TessDriver */ {}
+impl<T> Driver for T where T: ?Sized + BufferDriver + RenderStateDriver + TextureDriver + FramebufferDriver + TessDriver {}
 
 /// Buffer implementation.
 pub unsafe trait BufferDriver {
@@ -28,7 +28,7 @@ pub unsafe trait BufferDriver {
   type Buffer;
 
   /// Error that might occur with buffers.
-  type Err: Display;
+  type Err: Debug + Display;
 
   /// Create a new buffer with uninitialized memory.
   unsafe fn new_buffer<T>(&mut self, len: usize) -> Result<Self::Buffer, Self::Err>;
@@ -94,7 +94,7 @@ pub unsafe trait TextureDriver {
   type Texture;
 
   /// Error that might occur with textures.
-  type Err;
+  type Err: Debug + Display;
 
   /// Create a new texture.
   unsafe fn new_texture<L, D, P>(
@@ -148,7 +148,7 @@ pub unsafe trait FramebufferDriver: TextureDriver {
   type Framebuffer;
 
   /// Error that might occur with framebuffers.
-  type Err;
+  type Err: Debug + Display;
 
   /// Get the back buffer, if any available.
   unsafe fn back_buffer(
@@ -202,7 +202,13 @@ pub unsafe trait TessDriver: BufferDriver {
   type TessBuilder;
 
   /// Error that might occur with tessellations.
-  type Err: Display;
+  type Err: Debug + Display;
+
+  /// Get the default number of vertices in a tessellation.
+  unsafe fn vert_nb(tess: &Self::Tess) -> usize;
+
+  /// Get the default number of instances in a tessellation.
+  unsafe fn inst_nb(tess: &Self::Tess) -> usize;
 
   /// Create an empty tessellation builder.
   unsafe fn new_tess_builder(&mut self) -> Result<Self::TessBuilder, <Self as TessDriver>::Err>;
@@ -288,7 +294,7 @@ pub unsafe trait TessDriver: BufferDriver {
 //
 //   type BoundBuffer;
 //
-//   type Err: Display;
+//   type Err: Debug + Display;
 //
 //   /// Create a new pipeline builder.
 //   unsafe fn new_builder(&mut self) -> Result<Self::Builder, <Self as PipelineDriver>::Err>;
