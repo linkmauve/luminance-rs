@@ -291,8 +291,11 @@ pub unsafe trait ShaderDriver {
   /// Representation of a shader program.
   type Program;
 
-  // /// Representation of a shader uniform.
-  // type Uniform;
+  /// Representation of a uniform builder, used to query uniforms.
+  type UniformBuilder;
+
+  /// Representation of a shader uniform’s location.
+  type UniformLocation;
 
   /// Type of error that can occur in implementations.
   type Err: Debug + Display;
@@ -316,8 +319,30 @@ pub unsafe trait ShaderDriver {
   where T: Into<Option<(&'a Self::Stage, &'a Self::Stage)>>,
         G: Into<Option<&'a Self::Stage>>;
 
+  /// Drop a shader program.
+  unsafe fn drop_shader_program(program: &mut Self::Program);
+
   /// Link a shader program.
   unsafe fn link_shader_program(program: &Self::Program) -> Result<(), Self::Err>;
+
+  /// Create a new uniform builder.
+  unsafe fn new_uniform_builder(
+    program: &mut Self::Program
+  ) -> Result<Self::UniformBuilder, Self::Err>;
+
+  /// Ask for a uniform’s location.
+  unsafe fn get_uniform_location(
+    program: &mut Self::Program,
+    builder: &mut Self::UniformBuilder,
+    name: &str
+  ) -> Result<Self::UniformLocation, Self::Err>;
+
+  /// Ask for a uniform block’s location.
+  unsafe fn get_uniform_block_location(
+    program: &mut Self::Program,
+    builder: &mut Self::UniformBuilder,
+    name: &str
+  ) -> Result<Self::UniformLocation, Self::Err>;
 }
 
 // /// Rendering pipeline implementation.

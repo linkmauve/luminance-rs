@@ -9,7 +9,7 @@ use std::ptr::{null, null_mut};
 
 use crate::driver::ShaderDriver;
 use crate::driver::gl33::GL33;
-use crate::driver::gl33::shader::program::{Program, ProgramError};
+use crate::driver::gl33::shader::program::{Program, ProgramError, UniformBuilder, UniformWarning};
 use crate::driver::gl33::shader::stage::{GLSL_PRAGMA, Stage, StageError, glsl_pragma_src, opengl_shader_type};
 use crate::shader::stage2::Type;
 
@@ -19,6 +19,15 @@ pub enum ShaderError {
   StageError(StageError),
   /// A shader program error.
   ProgramError(ProgramError),
+}
+
+impl fmt::Display for ShaderError {
+  fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    match *self {
+      ShaderError::StageError(ref e) => write!(f, "shader stage error: {}", e),
+      ShaderError::ProgramError(ref e) => write!(f, "shader program error: {}", e),
+    }
+  }
 }
 
 impl From<StageError> for ShaderError {
@@ -38,7 +47,11 @@ unsafe impl ShaderDriver for GL33 {
 
   type Program = Program;
 
-  type Err = ProgramError;
+  type UniformBuilder = UniformBuilder;
+
+  type UniformLocation = GLint;
+
+  type Err = ShaderError;
 
   unsafe fn new_shader_stage(ty: Type, src: &str) -> Result<Self::Stage, Self::Err> {
     let handle = gl::CreateShader(opengl_shader_type(ty));
@@ -114,6 +127,10 @@ unsafe impl ShaderDriver for GL33 {
     Self::link_shader_program(&program).map(move |_| program)
   }
 
+  unsafe fn drop_shader_program(program: &mut Self::Program) {
+    gl::DeleteProgram(program.handle);
+  }
+
   unsafe fn link_shader_program(program: &Self::Program) -> Result<(), Self::Err> {
     let handle = program.handle;
 
@@ -138,5 +155,40 @@ unsafe impl ShaderDriver for GL33 {
       Err(ProgramError::LinkFailed(String::from_utf8(log).unwrap()).into())
     }
   }
-}
 
+  unsafe fn new_uniform_builder(
+    _: &mut Self::Program
+  ) -> Result<Self::UniformBuilder, Self::Err> {
+    Ok(UniformBuilder::default())
+  }
+
+  unsafe fn get_uniform_location(
+    program: &mut Self::Program,
+    _: &mut Self::UniformBuilder,
+    name: &str
+  ) -> Result<Self::UniformLocation, Self::Err> {
+    let c_name = CString::new(name.as_bytes()).unwrap();
+    let location = gl::GetUniformLocation(program.handle, c_name.as_ptr() as *const GLchar);
+
+    if location < 0 {
+      Err(ProgramError::UniformWarning(UniformWarning::Inactive(name.to_owned())).into())
+    } else {
+      Ok(location)
+    }
+  }
+
+  unsafe fn get_uniform_block_location(
+    program: &mut Self::Program,
+    _: &mut Self::UniformBuilder,
+    name: &str
+  ) -> Result<Self::UniformLocation, Self::Err> {
+    let c_name = CString::new(name.as_bytes()).unwrap();
+    let location = gl::GetUniformBlockIndex(program.handle, c_name.as_ptr() as *const GLchar);
+
+    if location == gl::INVALID_INDEX {
+      Err(ProgramError::UniformWarning(UniformWarning::Inactive(name.to_owned())).into())
+    } else {
+      Ok(location as GLint)
+    }
+  }
+}

@@ -82,3 +82,16 @@ impl fmt::Display for VertexAttribWarning {
     }
   }
 }
+
+#[derive(Debug)]
+pub struct UniformBuilder {
+  warnings: Vec<UniformWarning>
+}
+
+impl Default for UniformBuilder {
+  fn default() -> Self {
+    UniformBuilder {
+      warnings: Vec::new()
+    }
+  }
+}
