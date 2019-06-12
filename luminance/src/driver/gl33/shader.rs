@@ -191,4 +191,11 @@ unsafe impl ShaderDriver for GL33 {
       Ok(location as GLint)
     }
   }
+
+  unsafe fn get_unbound_location(
+    _: &mut Self::Program,
+    _: &mut Self::UniformBuilder
+  ) -> Result<Self::UniformLocation, Self::Err> {
+    Ok(-1)
+  }
 }

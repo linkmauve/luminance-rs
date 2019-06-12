@@ -343,6 +343,13 @@ pub unsafe trait ShaderDriver {
     builder: &mut Self::UniformBuilder,
     name: &str
   ) -> Result<Self::UniformLocation, Self::Err>;
+
+  /// Special uniform that is used to represent unbound variables — i.e. uniform that are accepted
+  /// in the type system even if they’re not actually mapped on GPU.
+  unsafe fn get_unbound_location(
+    program: &mut Self::Program,
+    builder: &mut Self::UniformBuilder
+  ) -> Result<Self::UniformLocation, Self::Err>;
 }
 
 // /// Rendering pipeline implementation.
