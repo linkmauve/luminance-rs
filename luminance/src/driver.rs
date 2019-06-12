@@ -288,6 +288,12 @@ pub unsafe trait ShaderDriver {
   /// Representation of a shader stage.
   type Stage;
 
+  /// Representation of a shader program.
+  type Program;
+
+  // /// Representation of a shader uniform.
+  // type Uniform;
+
   /// Type of error that can occur in implementations.
   type Err: Debug + Display;
 
@@ -299,6 +305,19 @@ pub unsafe trait ShaderDriver {
 
   /// Source a shader stage with a source code.
   unsafe fn source_shader_stage(stage: &mut Self::Stage, src: &str) -> Result<(), Self::Err>;
+
+  /// Create a new program by attaching shader stages.
+  unsafe fn new_shader_program<'a, T, G>(
+    tess: T,
+    vertex: &'a Self::Stage,
+    geometry: G,
+    fragment: &'a Self::Stage
+  ) -> Result<Self::Program, Self::Err>
+  where T: Into<Option<(&'a Self::Stage, &'a Self::Stage)>>,
+        G: Into<Option<&'a Self::Stage>>;
+
+  /// Link a shader program.
+  unsafe fn link_shader_program(program: &Self::Program) -> Result<(), Self::Err>;
 }
 
 // /// Rendering pipeline implementation.
