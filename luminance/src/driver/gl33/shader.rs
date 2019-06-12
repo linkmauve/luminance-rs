@@ -42,6 +42,17 @@ impl From<ProgramError> for ShaderError {
   }
 }
 
+pub struct Uniform {
+  program: GLuint,
+  index: GLint
+}
+
+impl Uniform {
+  fn new(program: GLuint, index: GLint) -> Self {
+    Uniform { program, index }
+  }
+}
+
 unsafe impl ShaderDriver for GL33 {
   type Stage = Stage;
 
@@ -49,7 +60,7 @@ unsafe impl ShaderDriver for GL33 {
 
   type UniformBuilder = UniformBuilder;
 
-  type UniformLocation = GLint;
+  type Uniform = Uniform;
 
   type Err = ShaderError;
 
@@ -162,40 +173,40 @@ unsafe impl ShaderDriver for GL33 {
     Ok(UniformBuilder::default())
   }
 
-  unsafe fn get_uniform_location(
+  unsafe fn ask_uniform(
     program: &mut Self::Program,
     _: &mut Self::UniformBuilder,
     name: &str
-  ) -> Result<Self::UniformLocation, Self::Err> {
+  ) -> Result<Self::Uniform, Self::Err> {
     let c_name = CString::new(name.as_bytes()).unwrap();
     let location = gl::GetUniformLocation(program.handle, c_name.as_ptr() as *const GLchar);
 
     if location < 0 {
       Err(ProgramError::UniformWarning(UniformWarning::Inactive(name.to_owned())).into())
     } else {
-      Ok(location)
+      Ok(Uniform::new(program.handle, location))
     }
   }
 
-  unsafe fn get_uniform_block_location(
+  unsafe fn ask_uniform_block(
     program: &mut Self::Program,
     _: &mut Self::UniformBuilder,
     name: &str
-  ) -> Result<Self::UniformLocation, Self::Err> {
+  ) -> Result<Self::Uniform, Self::Err> {
     let c_name = CString::new(name.as_bytes()).unwrap();
     let location = gl::GetUniformBlockIndex(program.handle, c_name.as_ptr() as *const GLchar);
 
     if location == gl::INVALID_INDEX {
       Err(ProgramError::UniformWarning(UniformWarning::Inactive(name.to_owned())).into())
     } else {
-      Ok(location as GLint)
+      Ok(Uniform::new(program.handle, location as GLint))
     }
   }
 
-  unsafe fn get_unbound_location(
-    _: &mut Self::Program,
+  unsafe fn ask_unbound_uniform(
+    program: &mut Self::Program,
     _: &mut Self::UniformBuilder
-  ) -> Result<Self::UniformLocation, Self::Err> {
-    Ok(-1)
+  ) -> Result<Self::Uniform, Self::Err> {
+    Ok(Uniform::new(program.handle, -1))
   }
 }

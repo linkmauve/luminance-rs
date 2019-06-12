@@ -294,8 +294,8 @@ pub unsafe trait ShaderDriver {
   /// Representation of a uniform builder, used to query uniforms.
   type UniformBuilder;
 
-  /// Representation of a shader uniform’s location.
-  type UniformLocation;
+  /// Representation of a shader uniform.
+  type Uniform;
 
   /// Type of error that can occur in implementations.
   type Err: Debug + Display;
@@ -331,25 +331,25 @@ pub unsafe trait ShaderDriver {
   ) -> Result<Self::UniformBuilder, Self::Err>;
 
   /// Ask for a uniform’s location.
-  unsafe fn get_uniform_location(
+  unsafe fn ask_uniform(
     program: &mut Self::Program,
     builder: &mut Self::UniformBuilder,
     name: &str
-  ) -> Result<Self::UniformLocation, Self::Err>;
+  ) -> Result<Self::Uniform, Self::Err>;
 
   /// Ask for a uniform block’s location.
-  unsafe fn get_uniform_block_location(
+  unsafe fn ask_uniform_block(
     program: &mut Self::Program,
     builder: &mut Self::UniformBuilder,
     name: &str
-  ) -> Result<Self::UniformLocation, Self::Err>;
+  ) -> Result<Self::Uniform, Self::Err>;
 
   /// Special uniform that is used to represent unbound variables — i.e. uniform that are accepted
   /// in the type system even if they’re not actually mapped on GPU.
-  unsafe fn get_unbound_location(
+  unsafe fn ask_unbound_uniform(
     program: &mut Self::Program,
     builder: &mut Self::UniformBuilder
-  ) -> Result<Self::UniformLocation, Self::Err>;
+  ) -> Result<Self::Uniform, Self::Err>;
 }
 
 // /// Rendering pipeline implementation.
