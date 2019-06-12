@@ -6,7 +6,7 @@ pub struct Program {
   pub(crate) handle: GLuint
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum ProgramError {
   /// Program link failed. You can inspect the reason by looking at the contained `String`.
   LinkFailed(String),

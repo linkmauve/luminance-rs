@@ -10,7 +10,7 @@ pub struct Stage {
   pub(crate) handle: GLuint
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum StageError {
   /// Occurs when a shader fails to compile.
   CompilationFailed(Type, String),

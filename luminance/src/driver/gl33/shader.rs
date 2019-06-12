@@ -13,7 +13,7 @@ use crate::driver::gl33::shader::program::{Program, ProgramError};
 use crate::driver::gl33::shader::stage::{GLSL_PRAGMA, Stage, StageError, glsl_pragma_src, opengl_shader_type};
 use crate::shader::stage2::Type;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum ShaderError {
   /// A shader stage error.
   StageError(StageError),
