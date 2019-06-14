@@ -36,8 +36,9 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ptr::null_mut;
 
+use crate::driver::{ShaderDriver, UniformDriver};
 use crate::linear::{M22, M33, M44};
-use crate::shader::stage::{self, Stage, StageError};
+use crate::shader::stage2::{self, Stage, StageError};
 use crate::vertex::Semantics;
 
 /// A raw shader program.
@@ -121,24 +122,26 @@ impl Drop for RawProgram {
 /// Typed shader programs represent their inputs, outputs and environment (uniforms) directly in
 /// their types. This is very interesting as it adds more static safety and enables such programs
 /// to *“store”* information like the uniform interface and such.
-pub struct Program<S, Out, Uni> {
-  raw: RawProgram,
+pub struct Program<D, S, Out, Uni> where D: ShaderDriver {
+  inner: D::Program,
   uni_iface: Uni,
   _in: PhantomData<*const S>,
   _out: PhantomData<*const Out>,
 }
 
-impl<S, Out, Uni> Program<S, Out, Uni> where S: Semantics {
+impl<D, S, Out, Uni> Program<S, Out, Uni>
+where D: ShaderDriver,
+      S: Semantics {
   /// Create a new program by consuming `Stage`s.
   pub fn from_stages<'a, T, G>(
     tess: T,
-    vertex: &Stage,
+    vertex: &Stage<D>,
     geometry: G,
-    fragment: &Stage,
+    fragment: &Stage<D>,
   ) -> Result<(Self, Vec<ProgramWarning>), ProgramError>
   where Uni: UniformInterface,
-        T: Into<Option<(&'a Stage, &'a Stage)>>,
-        G: Into<Option<&'a Stage>> {
+        T: Into<Option<(&'a Stage<D>, &'a Stage<D>)>>,
+        G: Into<Option<&'a Stage<D>>> {
     Self::from_stages_env(tess, vertex, geometry, fragment, ())
   }
 
@@ -158,14 +161,14 @@ impl<S, Out, Uni> Program<S, Out, Uni> where S: Semantics {
   /// Create a new program by consuming `Stage`s and by looking up an environment.
   pub fn from_stages_env<'a, E, T, G>(
     tess: T,
-    vertex: &Stage,
+    vertex: &Stage<D>,
     geometry: G,
-    fragment: &Stage,
+    fragment: &Stage<D>,
     env: E,
   ) -> Result<(Self, Vec<ProgramWarning>), ProgramError>
   where Uni: UniformInterface<E>,
-        T: Into<Option<(&'a Stage, &'a Stage)>>,
-        G: Into<Option<&'a Stage>> {
+        T: Into<Option<(&'a Stage<D>, &'a Stage<D>)>>,
+        G: Into<Option<&'a Stage<D>>> {
     let raw = RawProgram::new(tess, vertex, geometry, fragment)?;
 
     let mut warnings = bind_vertex_attribs_locations::<S>(&raw);
@@ -293,14 +296,6 @@ impl<S, Out, Uni> Program<S, Out, Uni> where S: Semantics {
   }
 }
 
-impl<S, Out, Uni> Deref for Program<S, Out, Uni> {
-  type Target = RawProgram;
-
-  fn deref(&self) -> &Self::Target {
-    &self.raw
-  }
-}
-
 /// Class of types that can act as uniform interfaces in typed programs.
 ///
 /// A uniform interface is a value that contains uniforms. The purpose of a uniform interface is to
@@ -324,16 +319,18 @@ impl UniformInterface for () {
 }
 
 /// Build uniforms to fold them to a uniform interface.
-pub struct UniformBuilder<'a> {
-  raw: &'a RawProgram,
-  warnings: Vec<UniformWarning>,
+pub struct UniformBuilder<'a, D> where D: ShaderDriver {
+  program: &'a Program<D>,
+  inner: D::UniformBuilder,
 }
 
-impl<'a> UniformBuilder<'a> {
-  fn new(raw: &'a RawProgram) -> Self {
+impl<'a, D> UniformBuilder<'a, D> where D: ShaderDriver {
+  fn new(program: &'a Program<D>) -> Self {
+    let inner = unsafe { D::new_uniform_builder(program) };
+
     UniformBuilder {
-      raw,
-      warnings: Vec::new(),
+      program,
+      inner,
     }
   }
 
@@ -342,7 +339,7 @@ impl<'a> UniformBuilder<'a> {
   /// Keep in mind that it’s possible that this function fails if you ask for a type for which the
   /// one defined in the shader doesn’t type match. If you don’t want a failure but an *unbound*
   /// uniform, head over to the `ask_unbound` function.
-  pub fn ask<T>(&self, name: &str) -> Result<Uniform<T>, UniformWarning>
+  pub fn ask<T>(&self, name: &str) -> Result<Uniform<D, T>, D::Err>
   where T: Uniformable {
     let uniform = match T::ty() {
       Type::BufferBinding => self.ask_uniform_block(name)?,
@@ -366,16 +363,9 @@ impl<'a> UniformBuilder<'a> {
     }
   }
 
-  fn ask_uniform<T>(&self, name: &str) -> Result<Uniform<T>, UniformWarning>
+  fn ask_uniform<T>(&self, name: &str) -> Result<Uniform<D, T>, D::Err>
   where T: Uniformable {
-    let c_name = CString::new(name.as_bytes()).unwrap();
-    let location = unsafe { gl::GetUniformLocation(self.raw.handle, c_name.as_ptr() as *const GLchar) };
-
-    if location < 0 {
-      Err(UniformWarning::Inactive(name.to_owned()))
-    } else {
-      Ok(Uniform::new(self.raw.handle, location))
-    }
+    unsafe { D::ask_uniform(self.program.inner
   }
 
   fn ask_uniform_block<T>(&self, name: &str) -> Result<Uniform<T>, UniformWarning>
@@ -510,18 +500,21 @@ impl fmt::Display for VertexAttribWarning {
 /// A contravariant shader uniform. `Uniform<T>` doesn’t hold any value. It’s more like a mapping
 /// between the host code and the shader the uniform was retrieved from.
 #[derive(Debug)]
-pub struct Uniform<T> {
+pub struct Uniform<D, T> {
   program: GLuint,
   index: GLint,
+  _D: PhantomData<*const D>,
   _t: PhantomData<*const T>,
 }
 
-impl<T> Uniform<T>
-where T: Uniformable {
+impl<D, T> Uniform<D, T>
+where D: UniformDriver<T>,
+      T: Uniformable {
   fn new(program: GLuint, index: GLint) -> Self {
     Uniform {
       program,
       index,
+      _d: PhantomData,
       _t: PhantomData,
     }
   }
@@ -592,428 +585,426 @@ pub enum Type {
 
 /// Types that can behave as `Uniform`.
 pub unsafe trait Uniformable: Sized {
-  /// Update the uniform with a new value.
-  fn update(self, u: &Uniform<Self>);
-  /// Retrieve the `Type` of the uniform.
+  /// Retrieve the [`Type`] of the uniform.
   fn ty() -> Type;
 }
 
-unsafe impl Uniformable for i32 {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1i(u.index, self) }
-  }
-
-  fn ty() -> Type {
-    Type::Int
-  }
-}
-
-unsafe impl Uniformable for [i32; 2] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform2iv(u.index, 1, &self as *const i32) }
-  }
-
-  fn ty() -> Type {
-    Type::IVec2
-  }
-}
-
-unsafe impl Uniformable for [i32; 3] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform3iv(u.index, 1, &self as *const i32) }
-  }
-
-  fn ty() -> Type {
-    Type::IVec3
-  }
-}
-
-unsafe impl Uniformable for [i32; 4] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform4iv(u.index, 1, &self as *const i32) }
-  }
-
-  fn ty() -> Type {
-    Type::IVec4
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [i32] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1iv(u.index, self.len() as GLsizei, self.as_ptr()) }
-  }
-
-  fn ty() -> Type {
-    Type::Int
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[i32; 2]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform2iv(u.index, self.len() as GLsizei, self.as_ptr() as *const i32) }
-  }
-
-  fn ty() -> Type {
-    Type::IVec2
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[i32; 3]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform3iv(u.index, self.len() as GLsizei, self.as_ptr() as *const i32) }
-  }
-
-  fn ty() -> Type {
-    Type::IVec3
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[i32; 4]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform4iv(u.index, self.len() as GLsizei, self.as_ptr() as *const i32) }
-  }
-
-  fn ty() -> Type {
-    Type::IVec4
-  }
-}
-
-unsafe impl Uniformable for u32 {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1ui(u.index, self) }
-  }
-
-  fn ty() -> Type {
-    Type::UInt
-  }
-}
-
-unsafe impl Uniformable for [u32; 2] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform2uiv(u.index, 1, &self as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UIVec2
-  }
-}
-
-unsafe impl Uniformable for [u32; 3] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform3uiv(u.index, 1, &self as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UIVec3
-  }
-}
-
-unsafe impl Uniformable for [u32; 4] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform4uiv(u.index, 1, &self as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UIVec4
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [u32] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UInt
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[u32; 2]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform2uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UIVec2
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[u32; 3]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform3uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UIVec3
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[u32; 4]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform4uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::UIVec4
-  }
-}
-
-unsafe impl Uniformable for f32 {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1f(u.index, self) }
-  }
-
-  fn ty() -> Type {
-    Type::Float
-  }
-}
-
-unsafe impl Uniformable for [f32; 2] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform2fv(u.index, 1, &self as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Vec2
-  }
-}
-
-unsafe impl Uniformable for [f32; 3] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform3fv(u.index, 1, &self as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Vec3
-  }
-}
-
-unsafe impl Uniformable for [f32; 4] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform4fv(u.index, 1, &self as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Vec4
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [f32] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Float
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[f32; 2]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform2fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Vec2
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[f32; 3]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform3fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Vec3
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[f32; 4]] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform4fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::Vec4
-  }
-}
-
-unsafe impl Uniformable for M22 {
-  fn update(self, u: &Uniform<Self>) {
-    let v = [self];
-    unsafe { gl::UniformMatrix2fv(u.index, 1, gl::FALSE, v.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::M22
-  }
-}
-
-unsafe impl Uniformable for M33 {
-  fn update(self, u: &Uniform<Self>) {
-    let v = [self];
-    unsafe { gl::UniformMatrix3fv(u.index, 1, gl::FALSE, v.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::M33
-  }
-}
-
-unsafe impl Uniformable for M44 {
-  fn update(self, u: &Uniform<Self>) {
-    let v = [self];
-    unsafe { gl::UniformMatrix4fv(u.index, 1, gl::FALSE, v.as_ptr() as *const f32) }
-  }
-
-  fn ty() -> Type {
-    Type::M44
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [M22] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe {
-      gl::UniformMatrix2fv(
-        u.index,
-        self.len() as GLsizei,
-        gl::FALSE,
-        self.as_ptr() as *const f32,
-      )
-    }
-  }
-
-  fn ty() -> Type {
-    Type::M22
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [M33] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe {
-      gl::UniformMatrix3fv(
-        u.index,
-        self.len() as GLsizei,
-        gl::FALSE,
-        self.as_ptr() as *const f32,
-      )
-    }
-  }
-
-  fn ty() -> Type {
-    Type::M33
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [M44] {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe {
-      gl::UniformMatrix4fv(
-        u.index,
-        self.len() as GLsizei,
-        gl::FALSE,
-        self.as_ptr() as *const f32,
-      )
-    }
-  }
-
-  fn ty() -> Type {
-    Type::M44
-  }
-}
-
-unsafe impl Uniformable for bool {
-  fn update(self, u: &Uniform<Self>) {
-    unsafe { gl::Uniform1ui(u.index, self as GLuint) }
-  }
-
-  fn ty() -> Type {
-    Type::Bool
-  }
-}
-
-unsafe impl Uniformable for [bool; 2] {
-  fn update(self, u: &Uniform<Self>) {
-    let v = [self[0] as u32, self[1] as u32];
-    unsafe { gl::Uniform2uiv(u.index, 1, &v as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::BVec2
-  }
-}
-
-unsafe impl Uniformable for [bool; 3] {
-  fn update(self, u: &Uniform<Self>) {
-    let v = [self[0] as u32, self[1] as u32, self[2] as u32];
-    unsafe { gl::Uniform3uiv(u.index, 1, &v as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::BVec3
-  }
-}
-
-unsafe impl Uniformable for [bool; 4] {
-  fn update(self, u: &Uniform<Self>) {
-    let v = [self[0] as u32, self[1] as u32, self[2] as u32, self[3] as u32];
-    unsafe { gl::Uniform4uiv(u.index, 1, &v as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::BVec4
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [bool] {
-  fn update(self, u: &Uniform<Self>) {
-    let v: Vec<_> = self.iter().map(|x| *x as u32).collect();
-    unsafe { gl::Uniform1uiv(u.index, v.len() as GLsizei, v.as_ptr()) }
-  }
-
-  fn ty() -> Type {
-    Type::Bool
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[bool; 2]] {
-  fn update(self, u: &Uniform<Self>) {
-    let v: Vec<_> = self.iter().map(|x| [x[0] as u32, x[1] as u32]).collect();
-    unsafe { gl::Uniform2uiv(u.index, v.len() as GLsizei, v.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::BVec2
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[bool; 3]] {
-  fn update(self, u: &Uniform<Self>) {
-    let v: Vec<_> = self
-      .iter()
-      .map(|x| [x[0] as u32, x[1] as u32, x[2] as u32])
-      .collect();
-    unsafe { gl::Uniform3uiv(u.index, v.len() as GLsizei, v.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::BVec3
-  }
-}
-
-unsafe impl<'a> Uniformable for &'a [[bool; 4]] {
-  fn update(self, u: &Uniform<Self>) {
-    let v: Vec<_> = self
-      .iter()
-      .map(|x| [x[0] as u32, x[1] as u32, x[2] as u32, x[3] as u32])
-      .collect();
-    unsafe { gl::Uniform4uiv(u.index, v.len() as GLsizei, v.as_ptr() as *const u32) }
-  }
-
-  fn ty() -> Type {
-    Type::BVec4
-  }
-}
+//unsafe impl Uniformable for i32 {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1i(u.index, self) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Int
+//  }
+//}
+//
+//unsafe impl Uniformable for [i32; 2] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform2iv(u.index, 1, &self as *const i32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::IVec2
+//  }
+//}
+//
+//unsafe impl Uniformable for [i32; 3] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform3iv(u.index, 1, &self as *const i32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::IVec3
+//  }
+//}
+//
+//unsafe impl Uniformable for [i32; 4] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform4iv(u.index, 1, &self as *const i32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::IVec4
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [i32] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1iv(u.index, self.len() as GLsizei, self.as_ptr()) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Int
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[i32; 2]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform2iv(u.index, self.len() as GLsizei, self.as_ptr() as *const i32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::IVec2
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[i32; 3]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform3iv(u.index, self.len() as GLsizei, self.as_ptr() as *const i32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::IVec3
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[i32; 4]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform4iv(u.index, self.len() as GLsizei, self.as_ptr() as *const i32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::IVec4
+//  }
+//}
+//
+//unsafe impl Uniformable for u32 {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1ui(u.index, self) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UInt
+//  }
+//}
+//
+//unsafe impl Uniformable for [u32; 2] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform2uiv(u.index, 1, &self as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UIVec2
+//  }
+//}
+//
+//unsafe impl Uniformable for [u32; 3] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform3uiv(u.index, 1, &self as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UIVec3
+//  }
+//}
+//
+//unsafe impl Uniformable for [u32; 4] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform4uiv(u.index, 1, &self as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UIVec4
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [u32] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UInt
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[u32; 2]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform2uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UIVec2
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[u32; 3]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform3uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UIVec3
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[u32; 4]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform4uiv(u.index, self.len() as GLsizei, self.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::UIVec4
+//  }
+//}
+//
+//unsafe impl Uniformable for f32 {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1f(u.index, self) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Float
+//  }
+//}
+//
+//unsafe impl Uniformable for [f32; 2] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform2fv(u.index, 1, &self as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Vec2
+//  }
+//}
+//
+//unsafe impl Uniformable for [f32; 3] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform3fv(u.index, 1, &self as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Vec3
+//  }
+//}
+//
+//unsafe impl Uniformable for [f32; 4] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform4fv(u.index, 1, &self as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Vec4
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [f32] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Float
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[f32; 2]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform2fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Vec2
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[f32; 3]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform3fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Vec3
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[f32; 4]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform4fv(u.index, self.len() as GLsizei, self.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Vec4
+//  }
+//}
+//
+//unsafe impl Uniformable for M22 {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v = [self];
+//    unsafe { gl::UniformMatrix2fv(u.index, 1, gl::FALSE, v.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::M22
+//  }
+//}
+//
+//unsafe impl Uniformable for M33 {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v = [self];
+//    unsafe { gl::UniformMatrix3fv(u.index, 1, gl::FALSE, v.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::M33
+//  }
+//}
+//
+//unsafe impl Uniformable for M44 {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v = [self];
+//    unsafe { gl::UniformMatrix4fv(u.index, 1, gl::FALSE, v.as_ptr() as *const f32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::M44
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [M22] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe {
+//      gl::UniformMatrix2fv(
+//        u.index,
+//        self.len() as GLsizei,
+//        gl::FALSE,
+//        self.as_ptr() as *const f32,
+//      )
+//    }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::M22
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [M33] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe {
+//      gl::UniformMatrix3fv(
+//        u.index,
+//        self.len() as GLsizei,
+//        gl::FALSE,
+//        self.as_ptr() as *const f32,
+//      )
+//    }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::M33
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [M44] {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe {
+//      gl::UniformMatrix4fv(
+//        u.index,
+//        self.len() as GLsizei,
+//        gl::FALSE,
+//        self.as_ptr() as *const f32,
+//      )
+//    }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::M44
+//  }
+//}
+//
+//unsafe impl Uniformable for bool {
+//  fn update(self, u: &Uniform<Self>) {
+//    unsafe { gl::Uniform1ui(u.index, self as GLuint) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Bool
+//  }
+//}
+//
+//unsafe impl Uniformable for [bool; 2] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v = [self[0] as u32, self[1] as u32];
+//    unsafe { gl::Uniform2uiv(u.index, 1, &v as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::BVec2
+//  }
+//}
+//
+//unsafe impl Uniformable for [bool; 3] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v = [self[0] as u32, self[1] as u32, self[2] as u32];
+//    unsafe { gl::Uniform3uiv(u.index, 1, &v as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::BVec3
+//  }
+//}
+//
+//unsafe impl Uniformable for [bool; 4] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v = [self[0] as u32, self[1] as u32, self[2] as u32, self[3] as u32];
+//    unsafe { gl::Uniform4uiv(u.index, 1, &v as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::BVec4
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [bool] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v: Vec<_> = self.iter().map(|x| *x as u32).collect();
+//    unsafe { gl::Uniform1uiv(u.index, v.len() as GLsizei, v.as_ptr()) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::Bool
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[bool; 2]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v: Vec<_> = self.iter().map(|x| [x[0] as u32, x[1] as u32]).collect();
+//    unsafe { gl::Uniform2uiv(u.index, v.len() as GLsizei, v.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::BVec2
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[bool; 3]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v: Vec<_> = self
+//      .iter()
+//      .map(|x| [x[0] as u32, x[1] as u32, x[2] as u32])
+//      .collect();
+//    unsafe { gl::Uniform3uiv(u.index, v.len() as GLsizei, v.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::BVec3
+//  }
+//}
+//
+//unsafe impl<'a> Uniformable for &'a [[bool; 4]] {
+//  fn update(self, u: &Uniform<Self>) {
+//    let v: Vec<_> = self
+//      .iter()
+//      .map(|x| [x[0] as u32, x[1] as u32, x[2] as u32, x[3] as u32])
+//      .collect();
+//    unsafe { gl::Uniform4uiv(u.index, v.len() as GLsizei, v.as_ptr() as *const u32) }
+//  }
+//
+//  fn ty() -> Type {
+//    Type::BVec4
+//  }
+//}
 
 // Check whether a shader program’s uniform type matches the type we have chosen.
 fn uniform_type_match(program: GLuint, name: &str, ty: Type) -> Result<(), String> {

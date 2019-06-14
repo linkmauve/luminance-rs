@@ -168,14 +168,14 @@ unsafe impl ShaderDriver for GL33 {
   }
 
   unsafe fn new_uniform_builder(
-    _: &mut Self::Program
+    _: &Self::Program
   ) -> Result<Self::UniformBuilder, Self::Err> {
     Ok(UniformBuilder::default())
   }
 
   unsafe fn ask_uniform(
-    program: &mut Self::Program,
-    _: &mut Self::UniformBuilder,
+    program: &Self::Program,
+    _: &Self::UniformBuilder,
     name: &str
   ) -> Result<Self::Uniform, Self::Err> {
     let c_name = CString::new(name.as_bytes()).unwrap();
@@ -189,8 +189,8 @@ unsafe impl ShaderDriver for GL33 {
   }
 
   unsafe fn ask_uniform_block(
-    program: &mut Self::Program,
-    _: &mut Self::UniformBuilder,
+    program: &Self::Program,
+    _: &Self::UniformBuilder,
     name: &str
   ) -> Result<Self::Uniform, Self::Err> {
     let c_name = CString::new(name.as_bytes()).unwrap();
@@ -203,9 +203,9 @@ unsafe impl ShaderDriver for GL33 {
     }
   }
 
-  unsafe fn ask_unbound_uniform(
-    program: &mut Self::Program,
-    _: &mut Self::UniformBuilder
+  unsafe fn unbound_uniform(
+    program: &Self::Program,
+    _: &Self::UniformBuilder
   ) -> Result<Self::Uniform, Self::Err> {
     Ok(Uniform::new(program.handle, -1))
   }

@@ -327,29 +327,35 @@ pub unsafe trait ShaderDriver {
 
   /// Create a new uniform builder.
   unsafe fn new_uniform_builder(
-    program: &mut Self::Program
+    program: &Self::Program
   ) -> Result<Self::UniformBuilder, Self::Err>;
 
   /// Ask for a uniform’s location.
   unsafe fn ask_uniform(
-    program: &mut Self::Program,
-    builder: &mut Self::UniformBuilder,
+    program: &Self::Program,
+    builder: &Self::UniformBuilder,
     name: &str
   ) -> Result<Self::Uniform, Self::Err>;
 
   /// Ask for a uniform block’s location.
   unsafe fn ask_uniform_block(
-    program: &mut Self::Program,
-    builder: &mut Self::UniformBuilder,
+    program: &Self::Program,
+    builder: &Self::UniformBuilder,
     name: &str
   ) -> Result<Self::Uniform, Self::Err>;
 
   /// Special uniform that is used to represent unbound variables — i.e. uniform that are accepted
   /// in the type system even if they’re not actually mapped on GPU.
-  unsafe fn ask_unbound_uniform(
-    program: &mut Self::Program,
-    builder: &mut Self::UniformBuilder
+  unsafe fn unbound_uniform(
+    program: &Self::Program,
+    builder: &Self::UniformBuilder
   ) -> Result<Self::Uniform, Self::Err>;
+}
+
+/// Implementation of uniforms by drivers.
+pub unsafe trait UniformDriver<T>: ShaderDriver {
+  /// Update a uniform with a given value.
+  unsafe fn update(uniform: &mut Self::Uniform, value: T);
 }
 
 // /// Rendering pipeline implementation.
