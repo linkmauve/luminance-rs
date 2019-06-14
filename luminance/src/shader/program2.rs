@@ -365,7 +365,8 @@ impl<'a, D> UniformBuilder<'a, D> where D: ShaderDriver {
 
   fn ask_uniform<T>(&self, name: &str) -> Result<Uniform<D, T>, D::Err>
   where T: Uniformable {
-    unsafe { D::ask_uniform(self.program.inner
+    unsafe {
+      D::ask_uniform(&self.program.inner, &self.inner).map(|
   }
 
   fn ask_uniform_block<T>(&self, name: &str) -> Result<Uniform<T>, UniformWarning>
