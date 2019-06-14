@@ -310,20 +310,18 @@ pub unsafe trait ShaderDriver {
   unsafe fn source_shader_stage(stage: &mut Self::Stage, src: &str) -> Result<(), Self::Err>;
 
   /// Create a new program by attaching shader stages.
-  unsafe fn new_shader_program<'a, T, G>(
+  unsafe fn new_shader_program<'a, S, T, G>(
     tess: T,
     vertex: &'a Self::Stage,
     geometry: G,
     fragment: &'a Self::Stage
   ) -> Result<Self::Program, Self::Err>
-  where T: Into<Option<(&'a Self::Stage, &'a Self::Stage)>>,
+  where S: vertex::Semantics,
+        T: Into<Option<(&'a Self::Stage, &'a Self::Stage)>>,
         G: Into<Option<&'a Self::Stage>>;
 
   /// Drop a shader program.
   unsafe fn drop_shader_program(program: &mut Self::Program);
-
-  /// Link a shader program.
-  unsafe fn link_shader_program(program: &Self::Program) -> Result<(), Self::Err>;
 
   /// Create a new uniform builder.
   unsafe fn new_uniform_builder(
